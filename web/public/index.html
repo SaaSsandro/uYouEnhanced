@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>uYouEnhanced build</title>
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<header>
+  <h1>uYouEnhanced</h1>
+  <p class="sub">Local front-end for <code id="workflow-name">buildapp.yml</code></p>
+  <ul id="prereqs" class="prereqs"></ul>
+</header>
+
+<main>
+  <form id="build-form">
+    <section>
+      <h2>Build settings</h2>
+      <div id="inputs" class="grid"></div>
+    </section>
+
+    <section>
+      <h2>Tweaks</h2>
+      <p class="hint">Select exactly which tweaks are compiled and injected into the IPA.</p>
+      <div class="toolbar">
+        <button type="button" data-preset="default">Defaults</button>
+        <button type="button" data-preset="all">All</button>
+        <button type="button" data-preset="none">None</button>
+        <span id="tweak-count" class="hint"></span>
+      </div>
+      <div id="tweak-default" class="tweaks"></div>
+      <h3>Optional <span class="hint">(not built by default)</span></h3>
+      <div id="tweak-optional" class="tweaks"></div>
+    </section>
+
+    <section>
+      <h2>GitHub target</h2>
+      <div id="target" class="grid"></div>
+      <p class="hint">The token is only forwarded to api.github.com for this request; it is never stored or logged.</p>
+    </section>
+
+    <div class="actions">
+      <button type="submit" id="dispatch" class="primary">Dispatch GitHub Actions build</button>
+      <button type="button" id="script">Generate local build script</button>
+    </div>
+  </form>
+
+  <section>
+    <h2>Output</h2>
+    <pre id="output" aria-live="polite">Loading configuration…</pre>
+    <div id="script-actions" class="toolbar" hidden>
+      <button type="button" id="download">Download script</button>
+      <button type="button" id="copy">Copy script</button>
+    </div>
+  </section>
+</main>
+
+<script src="/app.js" type="module"></script>
+</body>
+</html>

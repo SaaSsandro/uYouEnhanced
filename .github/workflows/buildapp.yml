@@ -51,16 +51,11 @@ on:
         default: true
         required: false
         type: boolean
-      ytuhd:
-        description: "Include YTUHD"
-        default: false
+      enabled_tweaks:
+        description: "Optional tweaks to include (space- or comma-separated ids)"
+        default: "DontEatMyContent FLEXing Return-YouTube-Dislikes YTABConfig YouGroupSettings YTIcons YouLoop YouMute YouPiP YouQuality YouSlider YouSpeed YouTimeStamp YTHoldForSpeed YTVideoOverlay YTweaks YouTubeLegacy"
         required: false
-        type: boolean
-      sponsorblock:
-        description: "Include iSponsorBlock"
-        default: false
-        required: false
-        type: boolean
+        type: string
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -78,7 +73,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           path: main
-          ref: ${{ github.event.inputs.commit_id || github.ref }}
+          ref: ${{ inputs.commit_id || github.ref }}
           submodules: recursive
 
       - name: Install Dependencies
@@ -188,19 +183,20 @@ jobs:
           path: main/modules/ffmpeg
           key: ${{ steps.ffmpeg_cache.outputs.cache-primary-key }}
 
-      - name: Fix compiling & Build Package
+      - name: Build Package
         id: build_package
         run: |
           cd main
-          sed -i '' "s/^BUNDLE_ID .*/BUNDLE_ID = ${{ inputs.bundle_id }}/" Makefile || echo "BUNDLE_ID = ${{ inputs.bundle_id }}" >> Makefile
-          sed -i '' "s/^DISPLAY_NAME .*/DISPLAY_NAME = ${{ inputs.app_name }}/" Makefile || echo "DISPLAY_NAME = ${{ inputs.app_name }}" >> Makefile
-          sed -i '' "s/^export TARGET .*/export TARGET = iphone:clang:${{ inputs.sdk_version }}:15.0/" Makefile || echo "export TARGET = iphone:clang:${{ inputs.sdk_version }}:15.0" >> Makefile
-          make package THEOS_PACKAGE_SCHEME=rootless IPA=Payload/YouTube.app FINALPACKAGE=1 YTUHD_ENABLED=${{ inputs.ytuhd && '1' || '0' }} SPONSORBLOCK_ENABLED=${{ inputs.sponsorblock && '1' || '0' }}
+          make package THEOS_PACKAGE_SCHEME=rootless IPA=Payload/YouTube.app FINALPACKAGE=1 \
+            SDK_VERSION="${{ inputs.sdk_version }}" \
+            BUNDLE_ID="${{ inputs.bundle_id }}" \
+            DISPLAY_NAME="${{ inputs.app_name }}" \
+            UYOU_VERSION="${{ inputs.uyou_version }}" \
+            ENABLED_TWEAKS="$(printf '%s' '${{ inputs.enabled_tweaks }}' | tr -s ', ' ' ')"
           echo "package=$(ls -t packages | head -n1)" >> $GITHUB_OUTPUT
 
         env:
           THEOS: ${{ github.workspace }}/theos
-          UYOU_VERSION: ${{ inputs.uyou_version }}
 
       - name: Clone Open in YouTube (Safari Extension)
         run: |

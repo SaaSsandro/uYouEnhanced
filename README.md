@@ -386,6 +386,39 @@ On [this repo's issue tracker](https://github.com/arichornlover/uYouEnhanced/iss
 See [arichornlover/Building - Wiki](https://github.com/arichornlover/uYouEnhanced/wiki/Building)
 or [qnblackcat/Building - Wiki](https://github.com/qnblackcat/uYouPlus/wiki/Building).
 
+## Local web UI
+
+`web/` is a small local front-end for the **Build and Release uYouEnhanced**
+workflow. It reads the inputs from `.github/workflows/buildapp.yml` and the
+available tweaks from the `Makefile`, so both stay the single source of truth.
+
+```sh
+cd web
+npm start          # http://localhost:8787
+```
+
+From the page you can:
+
+- select **any subset of tweaks** (not just YTUHD and iSponsorBlock),
+- **dispatch the GitHub Actions workflow** with a personal access token, or
+- **generate an equivalent local build script** (requires Theos and the usual
+  build dependencies; the UI shows which ones are missing).
+
+The token is only forwarded to `api.github.com` for the request and is never
+stored or logged.
+
+## Selecting tweaks
+
+`ENABLED_TWEAKS` is a space-separated list of ids from `TWEAK_REGISTRY` in the
+`Makefile`; it controls which optional tweaks are compiled and injected. It
+defaults to the historical set, so plain `make package` behaves as before.
+
+```sh
+make package ENABLED_TWEAKS="YouPiP YTUHD iSponsorBlock"
+```
+
+Unknown ids fail the build with a list of valid ids.
+
 # Installation
 
 See [Installation - Wiki](https://github.com/qnblackcat/uYouPlus/wiki/Installation).

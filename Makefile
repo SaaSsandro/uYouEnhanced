@@ -20,6 +20,86 @@ endif
 PACKAGE_NAME = $(TWEAK_NAME)
 PACKAGE_VERSION = $(YOUTUBE_VERSION)-$(UYOU_VERSION)
 
+# ---------------------------------------------------------------------------
+# Optional tweaks
+# ---------------------------------------------------------------------------
+# ENABLED_TWEAKS selects which optional tweaks are compiled and injected into
+# the final package. It is a space-separated list of ids from TWEAK_REGISTRY.
+# Override it on the command line, e.g.
+#   make package ENABLED_TWEAKS="YouPiP YTUHD"
+DEFAULT_TWEAKS = DontEatMyContent FLEXing Return-YouTube-Dislikes YTABConfig \
+	YouGroupSettings YTIcons YouLoop YouMute YouPiP YouQuality YouSlider \
+	YouSpeed YouTimeStamp YTHoldForSpeed YTVideoOverlay YTweaks YouTubeLegacy
+
+ENABLED_TWEAKS ?= $(DEFAULT_TWEAKS)
+
+TWEAK_REGISTRY = DontEatMyContent FLEXing Return-YouTube-Dislikes YTABConfig \
+	YouGroupSettings YTIcons YouLoop YouMute YouPiP YouQuality YouSlider \
+	YouSpeed YouTimeStamp YTHoldForSpeed YTVideoOverlay YTweaks YouTubeLegacy \
+	iSponsorBlock YTUHD YTAmbientLight YTClassicVideoQuality IAmYouTube \
+	NoYTPremium uYouLocalization uYouUnofficial
+
+# <id>_SUBPROJECT is the Theos subproject directory, <id>_DYLIB is the dylib
+# it produces and that gets injected into YouTube.
+DontEatMyContent_SUBPROJECT = Tweaks/DontEatMyContent
+DontEatMyContent_DYLIB = DontEatMyContent
+FLEXing_SUBPROJECT = Tweaks/FLEXing/libflex
+FLEXing_DYLIB = libFLEX
+Return-YouTube-Dislikes_SUBPROJECT = Tweaks/Return-YouTube-Dislikes
+Return-YouTube-Dislikes_DYLIB = YouTubeDislikesReturn
+YTABConfig_SUBPROJECT = Tweaks/YTABConfig
+YTABConfig_DYLIB = YTABConfig
+YouGroupSettings_SUBPROJECT = Tweaks/YouGroupSettings
+YouGroupSettings_DYLIB = YouGroupSettings
+YTIcons_SUBPROJECT = Tweaks/YTIcons
+YTIcons_DYLIB = YTIcons
+YouLoop_SUBPROJECT = Tweaks/YouLoop
+YouLoop_DYLIB = YouLoop
+YouMute_SUBPROJECT = Tweaks/YouMute
+YouMute_DYLIB = YouMute
+YouPiP_SUBPROJECT = Tweaks/YouPiP
+YouPiP_DYLIB = YouPiP
+YouQuality_SUBPROJECT = Tweaks/YouQuality
+YouQuality_DYLIB = YouQuality
+YouSlider_SUBPROJECT = Tweaks/YouSlider
+YouSlider_DYLIB = YouSlider
+YouSpeed_SUBPROJECT = Tweaks/YouSpeed
+YouSpeed_DYLIB = YouSpeed
+YouTimeStamp_SUBPROJECT = Tweaks/YouTimeStamp
+YouTimeStamp_DYLIB = YouTimeStamp
+YTHoldForSpeed_SUBPROJECT = Tweaks/YTHoldForSpeed
+YTHoldForSpeed_DYLIB = YTHoldForSpeed
+YTVideoOverlay_SUBPROJECT = Tweaks/YTVideoOverlay
+YTVideoOverlay_DYLIB = YTVideoOverlay
+YTweaks_SUBPROJECT = Tweaks/YTweaks
+YTweaks_DYLIB = YTweaks
+YouTubeLegacy_SUBPROJECT = Tweaks/YouTubeLegacy
+YouTubeLegacy_DYLIB = YouTubeLegacy
+iSponsorBlock_SUBPROJECT = Tweaks/iSponsorBlock
+iSponsorBlock_DYLIB = iSponsorBlock
+YTUHD_SUBPROJECT = Tweaks/YTUHD
+YTUHD_DYLIB = YTUHD
+YTAmbientLight_SUBPROJECT = Tweaks/YTAmbientLight
+YTAmbientLight_DYLIB = YTAmbientLight
+YTClassicVideoQuality_SUBPROJECT = Tweaks/YTClassicVideoQuality
+YTClassicVideoQuality_DYLIB = YTClassicVideoQuality
+IAmYouTube_SUBPROJECT = Tweaks/IAmYouTube
+IAmYouTube_DYLIB = IAmYouTube
+NoYTPremium_SUBPROJECT = Tweaks/NoYTPremium
+NoYTPremium_DYLIB = NoYTPremium
+uYouLocalization_SUBPROJECT = Tweaks/uYouLocalization
+uYouLocalization_DYLIB = uYouLocalization
+uYouUnofficial_SUBPROJECT = Tweaks/uYouUnofficial
+uYouUnofficial_DYLIB = uYouUnofficial
+
+UNKNOWN_TWEAKS = $(filter-out $(TWEAK_REGISTRY),$(ENABLED_TWEAKS))
+ifneq ($(UNKNOWN_TWEAKS),)
+$(error Unknown tweak(s) in ENABLED_TWEAKS: $(UNKNOWN_TWEAKS). Valid ids: $(TWEAK_REGISTRY))
+endif
+
+ENABLED_TWEAK_SUBPROJECTS = $(foreach t,$(ENABLED_TWEAKS),$($(t)_SUBPROJECT))
+ENABLED_TWEAK_DYLIBS = $(foreach t,$(ENABLED_TWEAKS),$(THEOS_OBJ_DIR)/$($(t)_DYLIB).dylib)
+
 $(TWEAK_NAME)_FILES := $(wildcard Sources/*.xm) $(wildcard Sources/*.x) $(wildcard Sources/*.m)
 $(TWEAK_NAME)_FRAMEWORKS = UIKit Foundation AVFoundation AVKit Photos Accelerate CoreMotion GameController VideoToolbox Security MediaPlayer JavaScriptCore
 $(TWEAK_NAME)_LIBRARIES = bz2 c++ iconv z sqlite3
@@ -39,31 +119,7 @@ endif
 
 $(TWEAK_NAME)_INJECT_DYLIBS = \
 	Tweaks/uYou/Library/MobileSubstrate/DynamicLibraries/uYou.dylib \
-	$(THEOS_OBJ_DIR)/libFLEX.dylib \
-	$(THEOS_OBJ_DIR)/YTABConfig.dylib \
-	$(THEOS_OBJ_DIR)/YTIcons.dylib \
-	$(THEOS_OBJ_DIR)/YouGroupSettings.dylib \
-	$(THEOS_OBJ_DIR)/YouLoop.dylib \
-	$(THEOS_OBJ_DIR)/YouMute.dylib \
-	$(THEOS_OBJ_DIR)/YouPiP.dylib \
-	$(THEOS_OBJ_DIR)/YouQuality.dylib \
-	$(THEOS_OBJ_DIR)/YouSlider.dylib \
-	$(THEOS_OBJ_DIR)/YouSpeed.dylib \
-	$(THEOS_OBJ_DIR)/YouTimeStamp.dylib \
-	$(THEOS_OBJ_DIR)/YouTubeDislikesReturn.dylib \
-	$(THEOS_OBJ_DIR)/DontEatMyContent.dylib \
-	$(THEOS_OBJ_DIR)/YTHoldForSpeed.dylib \
-	$(THEOS_OBJ_DIR)/YTVideoOverlay.dylib \
-	$(THEOS_OBJ_DIR)/YTweaks.dylib \
-	$(THEOS_OBJ_DIR)/YouTubeLegacy.dylib
-
-ifeq ($(SPONSORBLOCK_ENABLED),1)
-$(TWEAK_NAME)_INJECT_DYLIBS += $(THEOS_OBJ_DIR)/iSponsorBlock.dylib
-endif
-
-ifeq ($(YTUHD_ENABLED),1)
-$(TWEAK_NAME)_INJECT_DYLIBS += $(THEOS_OBJ_DIR)/YTUHD.dylib
-endif
+	$(ENABLED_TWEAK_DYLIBS)
 
 $(TWEAK_NAME)_EMBED_LIBRARIES = $(THEOS_OBJ_DIR)/libcolorpicker.dylib
 $(TWEAK_NAME)_EMBED_FRAMEWORKS = $(_THEOS_LOCAL_DATA_DIR)/$(THEOS_OBJ_DIR_NAME)/install_Alderis.xcarchive/Products/var/jb/Library/Frameworks/Alderis.framework
@@ -83,13 +139,7 @@ UYOU_BUNDLE = $(UYOU_PATH)/Library/Application\ Support/uYouBundle.bundle
 include $(THEOS)/makefiles/common.mk
 
 ifneq ($(JAILBROKEN),1)
-SUBPROJECTS += Tweaks/Alderis Tweaks/DontEatMyContent Tweaks/FLEXing/libflex Tweaks/Return-YouTube-Dislikes Tweaks/YTABConfig Tweaks/YouGroupSettings Tweaks/YTIcons Tweaks/YouLoop Tweaks/YouPiP Tweaks/YouQuality Tweaks/YouSlider Tweaks/YouSpeed Tweaks/YouTimeStamp Tweaks/YTHoldForSpeed Tweaks/YTVideoOverlay Tweaks/YTweaks Tweaks/YouTubeLegacy
-ifeq ($(SPONSORBLOCK_ENABLED),1)
-SUBPROJECTS += Tweaks/iSponsorBlock
-endif
-ifeq ($(YTUHD_ENABLED),1)
-SUBPROJECTS += Tweaks/YTUHD
-endif
+SUBPROJECTS += Tweaks/Alderis $(ENABLED_TWEAK_SUBPROJECTS)
 include $(THEOS_MAKE_PATH)/aggregate.mk
 endif
 
