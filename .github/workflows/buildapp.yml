@@ -109,6 +109,46 @@ jobs:
         env:
           THEOS: ${{ github.workspace }}/theos
 
+      # The iOS 27 SDK ships .tbd stubs whose target list contains arm64e.x1-ios,
+      # an architecture only Xcode 27's linker/tapi understands. The macOS runner
+      # images still top out at Xcode 26, whose libtapi bails out with
+      # "unknown architecture" / "malformed file". Drop that target and make sure
+      # the plain arm64 target is listed; the symbol lists stay untouched.
+      - name: Normalize iOS SDK stubs
+        run: |
+          python3 - "$THEOS/sdks/iPhoneOS${{ inputs.sdk_version }}.sdk" <<'PY'
+          import pathlib, re, sys
+
+          sdk = pathlib.Path(sys.argv[1])
+          if not sdk.is_dir():
+              sys.exit(f"SDK not found: {sdk}")
+
+          lists = re.compile(r"\[([^\[\]]*arm64e-ios[^\[\]]*)\]")
+
+          def normalize(match):
+              items = [i.strip() for i in match.group(1).split(",") if i.strip()]
+              items = ["arm64e-ios" if i == "arm64e.x1-ios" else i for i in items]
+              if "arm64-ios" not in items:
+                  items.insert(0, "arm64-ios")
+              seen, out = set(), []
+              for i in items:
+                  if i not in seen:
+                      seen.add(i)
+                      out.append(i)
+              return "[" + ", ".join(out) + "]"
+
+          changed = 0
+          for f in sdk.rglob("*.tbd"):
+              old = f.read_text(errors="surrogateescape")
+              new = lists.sub(normalize, old).replace("arm64e.x1-ios", "arm64e-ios")
+              if new != old:
+                  f.write_text(new, errors="surrogateescape")
+                  changed += 1
+          print(f"normalized {changed} .tbd files in {sdk}")
+          PY
+        env:
+          THEOS: ${{ github.workspace }}/theos
+
       - name: Setup Theos Jailed
         uses: actions/checkout@v7
         with:
