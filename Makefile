@@ -2,7 +2,15 @@ ifndef SDK_VERSION
 SDK_VERSION = 26.5
 endif
 
-export TARGET = iphone:clang:$(SDK_VERSION):15.0
+# Minimum iOS version the package and its subprojects are built for.
+MIN_IOS_VERSION ?= 15.0
+
+# Xcode 27 no longer accepts deployment targets below iOS 15, and Alderis'
+# project file still declares 12.0, so hand our value to its xcodebuild run.
+XCODEFLAGS ?= IPHONEOS_DEPLOYMENT_TARGET=$(MIN_IOS_VERSION)
+export XCODEFLAGS
+
+export TARGET = iphone:clang:$(SDK_VERSION):$(MIN_IOS_VERSION)
 export SDK_PATH = $(THEOS)/sdks/iPhoneOS$(SDK_VERSION).sdk/
 export SYSROOT = $(SDK_PATH)
 export ARCHS = arm64
