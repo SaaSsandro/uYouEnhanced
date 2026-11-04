@@ -168,6 +168,17 @@ jobs:
         env:
           YOUTUBE_URL: ${{ env.URL_YT }}
 
+      # Fails in seconds when the tweak selection cannot fit into the YouTube
+      # binary's load-command area. Without it insert_dylib stalls for hours
+      # instead of failing. See Tools/check-inject-budget.py.
+      - name: Check injection budget
+        run: |
+          cd main
+          python3 Tools/check-inject-budget.py \
+            --binary Payload/YouTube.app/YouTube \
+            --makefile Makefile \
+            --tweaks "${{ inputs.enabled_tweaks }}"
+
       - name: Restore FFmpegKit cache
         id: ffmpeg_cache
         uses: actions/cache/restore@v6
