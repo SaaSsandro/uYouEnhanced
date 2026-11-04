@@ -101,15 +101,21 @@ jobs:
         uses: actions/cache@v6
         with:
           path: theos/sdks/
-          key: iOS-${{ inputs.sdk_version }}-SDK
+          # The source is part of the key: caches from the previous SDK repo
+          # (aricloverALT/sdks) must not be reused.
+          key: iOS-xybp888-${{ inputs.sdk_version }}-SDK
 
       - name: Download iOS SDK
         if: steps.SDK.outputs.cache-hit != 'true'
         run: |
-          git clone --quiet -n --depth=1 --filter=tree:0 https://github.com/aricloverALT/sdks/ sdks
+          git clone --quiet -n --depth=1 --filter=tree:0 https://github.com/xybp888/iOS-SDKs.git sdks
           cd sdks
           git sparse-checkout set --no-cone iPhoneOS${{ inputs.sdk_version }}.sdk
           git checkout --quiet
+          if [ ! -d "iPhoneOS${{ inputs.sdk_version }}.sdk" ]; then
+            echo "error: iPhoneOS${{ inputs.sdk_version }}.sdk does not exist in xybp888/iOS-SDKs" >&2
+            exit 1
+          fi
           mv *.sdk $THEOS/sdks
         env:
           THEOS: ${{ github.workspace }}/theos
