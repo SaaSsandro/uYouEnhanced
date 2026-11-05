@@ -4,6 +4,7 @@ packages/
 tmp/
 Tweaks/uYou/*
 !Tweaks/uYou/.gitkeep
+Tweaks/YTPlus/
 Resources/
 *.ipa
 .vscode
@@ -11,4 +12,5 @@ __pycache__/
 *.pyc
 crash-analysis-report/
 *.ips
+web/server.log
 Payload

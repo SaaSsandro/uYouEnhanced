@@ -7,6 +7,7 @@
 // local build script. No runtime dependencies.
 import { createServer } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
+import { appendFileSync } from 'node:fs';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { homedir } from 'node:os';
@@ -26,6 +27,21 @@ const MAKEFILE_REL = 'Makefile';
 const PREREQ_BINS = ['make', 'git', 'curl', 'unzip', 'ldid', 'dpkg', 'cyan', 'xcodebuild'];
 const TWEAK_INPUT = 'enabled_tweaks';
 const MAX_BODY = 1 << 20;
+const LOG_FILE = process.env.LOG_FILE || path.join(__dirname, 'server.log');
+
+function log(kind, detail) {
+  const line = `${new Date().toISOString()} [${kind}] ${detail}\n`;
+  try { process.stderr.write(line); } catch { /* stderr already gone */ }
+  try { appendFileSync(LOG_FILE, line); } catch { /* log file unwritable */ }
+}
+
+// A local server must not die from one bad request, a closed pipe, or a
+// detached terminal. Log these paths and keep serving.
+process.on('uncaughtException', (err) => log('uncaughtException', err?.stack || String(err)));
+process.on('unhandledRejection', (err) => log('unhandledRejection', err?.stack || String(err)));
+process.on('SIGHUP', () => log('signal', 'SIGHUP ignored'));
+process.stdout.on('error', () => {});
+process.stderr.on('error', () => {});
 
 // ---------------------------------------------------------------------------
 // Workflow / Makefile parsing
@@ -231,6 +247,7 @@ async function dispatchWorkflow({ token, owner, repo, ref, inputs }) {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({ ref, inputs }),
+    signal: AbortSignal.timeout(30000),
   });
   const body = await res.text();
   return { status: res.status, ok: res.ok, body };
@@ -250,7 +267,7 @@ set -euo pipefail
 export THEOS=\${THEOS:-$HOME/theos}
 IPA_URL=${shq(values.decrypted_youtube_url)}
 SDK_VERSION=${shq(values.sdk_version)}
-UYOU_VERSION=${shq(values.uyou_version)}
+YTPLUS_VERSION=${shq(values.ytplus_version)}
 BUNDLE_ID=${shq(values.bundle_id)}
 APP_NAME=${shq(values.app_name)}
 ENABLED_TWEAKS=${shq(values.enabled_tweaks)}
@@ -277,7 +294,7 @@ make package THEOS_PACKAGE_SCHEME=rootless IPA=Payload/YouTube.app FINALPACKAGE=
   SDK_VERSION="$SDK_VERSION" \\
   BUNDLE_ID="$BUNDLE_ID" \\
   DISPLAY_NAME="$APP_NAME" \\
-  UYOU_VERSION="$UYOU_VERSION" \\
+  YTPLUS_VERSION="$YTPLUS_VERSION" \\
   ENABLED_TWEAKS="$ENABLED_TWEAKS"
 
 echo "Built: $(ls -t packages | head -n1)"
@@ -299,6 +316,7 @@ const MIME = {
 };
 
 function sendJson(res, status, payload) {
+  if (res.writableEnded || res.destroyed) return;
   const body = JSON.stringify(payload);
   res.writeHead(status, { 'Content-Type': MIME['.json'], 'Content-Length': Buffer.byteLength(body) });
   res.end(body);
@@ -317,6 +335,7 @@ async function readBody(req) {
 }
 
 async function serveStatic(req, res, pathname) {
+  if (res.writableEnded || res.destroyed) return;
   const rel = pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '');
   const file = path.resolve(PUBLIC_DIR, rel);
   if (file !== PUBLIC_DIR && !file.startsWith(PUBLIC_DIR + path.sep)) {
@@ -367,8 +386,14 @@ async function handleApi(req, res, pathname) {
 }
 
 const server = createServer(async (req, res) => {
-  const { pathname } = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+  let pathname = '/';
+  req.on('error', (err) => log('request', err.message));
+  res.on('error', (err) => log('response', err.message));
+  res.on('close', () => {
+    if (!res.writableEnded) log('request', `${req.method} ${pathname} aborted by client`);
+  });
   try {
+    pathname = new URL(req.url, `http://${req.headers.host || 'localhost'}`).pathname;
     if (pathname.startsWith('/api/')) {
       if (await handleApi(req, res, pathname)) return;
       sendJson(res, 404, { error: 'Unknown endpoint' });
@@ -376,15 +401,33 @@ const server = createServer(async (req, res) => {
     }
     await serveStatic(req, res, pathname);
   } catch (err) {
-    if (pathname.startsWith('/api/')) sendJson(res, 400, { error: err.message });
-    else {
-      res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
-      res.end(`Internal error: ${err.message}`);
+    log('handler', `${req.method} ${pathname}: ${err.stack || err}`);
+    try {
+      if (!res.writableEnded && !res.destroyed) {
+        if (pathname.startsWith('/api/')) sendJson(res, 400, { error: err.message });
+        else {
+          res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
+          res.end(`Internal error: ${err.message}`);
+        }
+      }
+    } catch (nested) {
+      log('handler', `could not send error response: ${nested.message}`);
     }
   }
 });
 
+server.on('clientError', (err, socket) => {
+  log('clientError', err.code || err.message);
+  if (socket.writable) socket.end('HTTP/1.1 400 Bad Request\r\n\r\n');
+});
+server.on('error', (err) => log('server', err.stack || err.message));
+
+server.headersTimeout = 20000;
+server.requestTimeout = 60000;
+server.keepAliveTimeout = 5000;
+
 server.listen(PORT, HOST, () => {
   console.log(`uYouEnhanced web UI: http://${HOST}:${PORT}`);
   console.log(`Repository: ${REPO_ROOT}`);
+  log('start', `listening on ${HOST}:${PORT}`);
 });
