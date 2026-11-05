@@ -86,7 +86,7 @@ def read_macho(path):
 
 
 def read_makefile(path):
-    """Return (repo dylib, uYou dylib, {tweak id: dylib name}, default tweaks)."""
+    """Return (repo dylib, {tweak id: dylib name}, default tweaks)."""
     lines, buffer = [], ""
     with open(path, encoding="utf-8", errors="replace") as handle:
         for line in handle:
@@ -105,19 +105,19 @@ def read_makefile(path):
         if match:
             variables.setdefault(match.group(1), match.group(2).strip())
 
-    for key in ("TWEAK_NAME", "UYOU_DYLIB", "TWEAK_REGISTRY"):
+    for key in ("TWEAK_NAME", "TWEAK_REGISTRY"):
         if key not in variables:
             die(f"{path}: {key} not found")
 
+    identifiers = variables["TWEAK_REGISTRY"].split() + variables.get("PAYLOAD_TWEAKS", "").split()
     dylibs = {}
-    for identifier in variables["TWEAK_REGISTRY"].split():
+    for identifier in identifiers:
         name = variables.get(f"{identifier}_DYLIB")
         if not name:
             die(f"{path}: no {identifier}_DYLIB for {identifier}")
         dylibs[identifier] = name
 
     return (f"{variables['TWEAK_NAME']}.dylib",
-            os.path.basename(variables["UYOU_DYLIB"]),
             dylibs,
             variables.get("DEFAULT_TWEAKS", "").split())
 
@@ -135,7 +135,7 @@ def main():
     parser.add_argument("--binary", default="Payload/YouTube.app/YouTube")
     args = parser.parse_args()
 
-    repo_dylib, uyou_dylib, registry, defaults = read_makefile(args.makefile)
+    repo_dylib, registry, defaults = read_makefile(args.makefile)
     enabled = [t for t in re.split(r"[\s,]+", args.tweaks) if t] or defaults
 
     unknown = [t for t in enabled if t not in registry]
@@ -146,7 +146,7 @@ def main():
     budget = section_offset - MACH_HEADER_64
     free = budget - sizeofcmds
 
-    entries = [(repo_dylib, "repo tweak"), (uyou_dylib, "uYou deb")]
+    entries = [(repo_dylib, "repo tweak")]
     entries += [(registry[t] + ".dylib", t) for t in enabled]
 
     print(f"binary     : {args.binary}")

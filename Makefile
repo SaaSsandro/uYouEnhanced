@@ -22,11 +22,11 @@ BUNDLE_ID ?= com.google.ios.youtube
 ifndef YOUTUBE_VERSION
 YOUTUBE_VERSION = 21.20.4
 endif
-ifndef UYOU_VERSION
-UYOU_VERSION = 3.0.4
+ifndef YTPLUS_VERSION
+YTPLUS_VERSION = 6.0
 endif
 PACKAGE_NAME = $(TWEAK_NAME)
-PACKAGE_VERSION = $(YOUTUBE_VERSION)-$(UYOU_VERSION)
+PACKAGE_VERSION = $(YOUTUBE_VERSION)-$(YTPLUS_VERSION)
 
 # ---------------------------------------------------------------------------
 # Optional tweaks
@@ -100,13 +100,18 @@ uYouLocalization_DYLIB = uYouLocalization
 uYouUnofficial_SUBPROJECT = Tweaks/uYouUnofficial
 uYouUnofficial_DYLIB = uYouUnofficial
 
-UNKNOWN_TWEAKS = $(filter-out $(TWEAK_REGISTRY),$(ENABLED_TWEAKS))
+# PAYLOAD_TWEAKS are shipped as prebuilt .deb files that the build unpacks and
+# injects (the way uYou used to be handled). They have no subproject to compile,
+# but they are selectable through ENABLED_TWEAKS like any other tweak.
+PAYLOAD_TWEAKS = YTPlus
+
+UNKNOWN_TWEAKS = $(filter-out $(TWEAK_REGISTRY) $(PAYLOAD_TWEAKS),$(ENABLED_TWEAKS))
 ifneq ($(UNKNOWN_TWEAKS),)
-$(error Unknown tweak(s) in ENABLED_TWEAKS: $(UNKNOWN_TWEAKS). Valid ids: $(TWEAK_REGISTRY))
+$(error Unknown tweak(s) in ENABLED_TWEAKS: $(UNKNOWN_TWEAKS). Valid ids: $(TWEAK_REGISTRY) $(PAYLOAD_TWEAKS))
 endif
 
-ENABLED_TWEAK_SUBPROJECTS = $(foreach t,$(ENABLED_TWEAKS),$($(t)_SUBPROJECT))
-ENABLED_TWEAK_DYLIBS = $(foreach t,$(ENABLED_TWEAKS),$(THEOS_OBJ_DIR)/$($(t)_DYLIB).dylib)
+ENABLED_TWEAK_SUBPROJECTS = $(foreach t,$(filter-out $(PAYLOAD_TWEAKS),$(ENABLED_TWEAKS)),$($(t)_SUBPROJECT))
+ENABLED_TWEAK_DYLIBS = $(foreach t,$(filter-out $(PAYLOAD_TWEAKS),$(ENABLED_TWEAKS)),$(THEOS_OBJ_DIR)/$($(t)_DYLIB).dylib)
 
 $(TWEAK_NAME)_FILES := $(wildcard Sources/*.xm) $(wildcard Sources/*.x) $(wildcard Sources/*.m)
 $(TWEAK_NAME)_FRAMEWORKS = UIKit Foundation AVFoundation AVKit Photos Accelerate CoreMotion GameController VideoToolbox Security MediaPlayer JavaScriptCore
@@ -128,9 +133,7 @@ export DEBUGFLAG = -ggdb -Wno-unused-command-line-argument -L$(THEOS_OBJ_DIR) -F
 MODULES = jailed
 endif
 
-$(TWEAK_NAME)_INJECT_DYLIBS = \
-	Tweaks/uYou/Library/MobileSubstrate/DynamicLibraries/uYou.dylib \
-	$(ENABLED_TWEAK_DYLIBS)
+$(TWEAK_NAME)_INJECT_DYLIBS = $(ENABLED_TWEAK_DYLIBS)
 
 $(TWEAK_NAME)_EMBED_LIBRARIES = $(THEOS_OBJ_DIR)/libcolorpicker.dylib
 $(TWEAK_NAME)_EMBED_FRAMEWORKS = $(_THEOS_LOCAL_DATA_DIR)/$(THEOS_OBJ_DIR_NAME)/install_Alderis.xcarchive/Products/var/jb/Library/Frameworks/Alderis.framework
@@ -142,10 +145,21 @@ REMOVE_EXTENSIONS = 1
 CODESIGN_IPA = 0
 FINALPACKAGE = 1
 
-UYOU_PATH = Tweaks/uYou
-UYOU_DEB = $(UYOU_PATH)/com.miro.uyou_$(UYOU_VERSION)_iphoneos-arm.deb
-UYOU_DYLIB = $(UYOU_PATH)/Library/MobileSubstrate/DynamicLibraries/uYou.dylib
-UYOU_BUNDLE = $(UYOU_PATH)/Library/Application\ Support/uYouBundle.bundle
+# YTPlus (formerly YTLite) ships as a prebuilt package, so its paths are
+# constants rather than build outputs. If upstream renames the library or the
+# bundle, adjust these lines - the extraction step fails loudly if they change.
+YTPlus_DYLIB = YTLite
+YTPLUS_URL = https://repo.ballermc.com/tubevault/%5BROOTLESS%5Dcom.dvntm.ytlite_$(YTPLUS_VERSION)_iphoneos-arm64_patched_SpyG.deb
+YTPLUS_PATH = Tweaks/YTPlus
+YTPLUS_DEB = $(YTPLUS_PATH)/ytplus_$(YTPLUS_VERSION).deb
+YTPLUS_LIBRARY = $(YTPLUS_PATH)/var/jb/Library
+YTPLUS_DYLIB = $(YTPLUS_LIBRARY)/MobileSubstrate/DynamicLibraries/$(YTPlus_DYLIB).dylib
+YTPLUS_BUNDLE = $(YTPLUS_LIBRARY)/Application\ Support/YTLite.bundle
+
+ifneq ($(filter YTPlus,$(ENABLED_TWEAKS)),)
+$(TWEAK_NAME)_INJECT_DYLIBS += $(YTPLUS_DYLIB)
+$(TWEAK_NAME)_EMBED_BUNDLES += $(YTPLUS_BUNDLE)
+endif
 
 include $(THEOS)/makefiles/common.mk
 
@@ -158,26 +172,26 @@ include $(THEOS_MAKE_PATH)/tweak.mk
 
 .PHONY: internal-clean before-all before-package
 internal-clean::
-	@rm -rf $(UYOU_PATH)/*
+	@rm -rf $(YTPLUS_PATH)
 
 ifneq ($(JAILBROKEN),1)
+ifneq ($(filter YTPlus,$(ENABLED_TWEAKS)),)
 before-all::
-	@if [[ ! -f $(UYOU_DEB) ]]; then \
-		rm -rf $(UYOU_PATH)/*; \
-		$(PRINT_FORMAT_BLUE) "Downloading uYou"; \
-	fi
-before-all::
-	@if [[ ! -f $(UYOU_DEB) ]]; then \
- 		curl -s -L "https://www.dropbox.com/scl/fi/01vvu5lm8nkkicrznku9v/com.miro.uyou_$(UYOU_VERSION)_iphoneos-arm.deb?rlkey=efgz7po8kqqvha8doplk1s3ky&dl=1" -o $(UYOU_DEB); \
- 	fi; \
-	if [[ ! -f $(UYOU_DYLIB) || ! -d $(UYOU_BUNDLE) ]]; then \
-		tar -xf Tweaks/uYou/com.miro.uyou_$(UYOU_VERSION)_iphoneos-arm.deb -C Tweaks/uYou; tar -xf Tweaks/uYou/data.tar* -C Tweaks/uYou; \
-		if [[ ! -f $(UYOU_DYLIB) || ! -d $(UYOU_BUNDLE) ]]; then \
-			$(PRINT_FORMAT_ERROR) "Failed to extract uYou"; exit 1; \
-		fi; \
+	@if [[ ! -f $(YTPLUS_DEB) ]]; then \
+		mkdir -p $(YTPLUS_PATH); \
+		$(PRINT_FORMAT_BLUE) "Downloading YTPlus"; \
+		curl -s -L "$(YTPLUS_URL)" -o $(YTPLUS_DEB); \
 	fi; \
-	perl -pi -e 's/3\.0\.4/3.0.5/g' $(UYOU_DYLIB); \
-	$(PRINT_FORMAT_BLUE) "uYou rebranded to 3.0.5 (Unofficial Build)";
+	if [[ ! -f $(YTPLUS_DYLIB) ]]; then \
+		$(PRINT_FORMAT_BLUE) "Extracting YTPlus"; \
+		tar -xf $(YTPLUS_DEB) -C $(YTPLUS_PATH); \
+		tar -xf $(YTPLUS_PATH)/data.tar.* -C $(YTPLUS_PATH); \
+	fi; \
+	if [[ ! -f $(YTPLUS_DYLIB) || ! -d $(YTPLUS_BUNDLE) ]]; then \
+		$(PRINT_FORMAT_ERROR) "Failed to extract YTPlus - expected $(YTPLUS_DYLIB)"; exit 1; \
+	fi; \
+	$(PRINT_FORMAT_BLUE) "YTPlus ready";
+endif
 
 before-package::
 	@bash tools/stage-ffmpeg.sh "$(THEOS_PROJECT_DIR)/Bundles"

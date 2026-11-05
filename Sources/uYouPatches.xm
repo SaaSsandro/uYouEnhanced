@@ -512,37 +512,6 @@ static void UYTArmStallWatchdog(id item, NSTimeInterval seconds) {
 }
 %end
 
-// --- Format Detection Fallback (#735, #814, #520) ---
-%hook uYouItem
-- (BOOL)isMP4 {
-    BOOL origResult = %orig;
-    if (origResult) return YES;
-
-    NSString *typeAndQuality = [self valueForKey:@"typeAndQuality"];
-    if (!typeAndQuality) {
-        typeAndQuality = self.qualityLabel;
-    }
-
-    if (typeAndQuality) {
-        NSString *lower = [typeAndQuality lowercaseString];
-        if ([lower containsString:@"audio"] ||
-            [lower containsString:@"mp4a"] ||
-            [lower containsString:@"mp4v"] ||
-            [lower containsString:@"mp4"] ||
-            [lower containsString:@"avc1"] ||
-            [lower containsString:@"video/mp4"]) {
-            return YES;
-        }
-    }
-
-    NSString *filePath = self.filePath;
-    if (filePath) {
-        return [[filePath pathExtension] isEqualToString:@"mp4"];
-    }
-
-    return NO;
-}
-%end
 
 // --- Metadata Attachment Exception Handling (#1010, #241, #814, #771, #947) ---
 // AddMetadata can throw on corrupt/webm audio; convert to m4a first, point the

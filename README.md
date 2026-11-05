@@ -409,15 +409,31 @@ stored or logged.
 
 ## Selecting tweaks
 
-`ENABLED_TWEAKS` is a space-separated list of ids from `TWEAK_REGISTRY` in the
-`Makefile`; it controls which optional tweaks are compiled and injected. It
-defaults to the historical set, so plain `make package` behaves as before.
+`ENABLED_TWEAKS` is a space-separated list of ids that controls which optional
+tweaks are injected. Valid ids are `TWEAK_REGISTRY` plus `PAYLOAD_TWEAKS` from
+the `Makefile`: the registry holds tweaks that are compiled from source, and
+`PAYLOAD_TWEAKS` holds prebuilt packages that are downloaded, unpacked and
+injected - currently `YTPlus` (formerly YTLite), whose version comes from the
+`ytplus_version` workflow input. It defaults to the historical set, so plain
+`make package` behaves as before.
 
 ```sh
-make package ENABLED_TWEAKS="YouPiP YTUHD iSponsorBlock"
+make package ENABLED_TWEAKS="YouPiP YTPlus iSponsorBlock"
 ```
 
 Unknown ids fail the build with a list of valid ids.
+
+The injected dylibs have to fit into the free space of the YouTube binary's
+load-command area - one reserved page (16352 B) minus what the binary already
+uses, which is around 1064 B for recent YouTube builds, and every dylib costs
+48-64 B depending on its file name. When that space runs out `insert_dylib`
+does not fail cleanly, it stalls for hours, so
+`Tools/check-inject-budget.py` checks the selection before the build and reports
+how much is left:
+
+```sh
+python3 Tools/check-inject-budget.py --tweaks "YouPiP YTPlus"
+```
 
 # Installation
 
