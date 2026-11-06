@@ -53,7 +53,7 @@ on:
         type: boolean
       enabled_tweaks:
         description: "Optional tweaks to include (space- or comma-separated ids)"
-        default: "YTPlus Gonerino Return-YouTube-Dislikes YTABConfig YouQuality YouSlider YTweaks YTVideoOverlay YTClassicVideoQuality YouTubeLegacy"
+        default: "YTPlus YTweaks YTABConfig YTClassicVideoQuality Return-YouTube-Dislikes YTVideoOverlay YouQuality YouSlider YouTubeLegacy YouGroupSettings FLEXing"
         required: false
         type: string
 

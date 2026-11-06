@@ -27,9 +27,6 @@
 [submodule "Tweaks/Return-YouTube-Dislikes"]
     path = Tweaks/Return-YouTube-Dislikes
     url = https://github.com/aricloverEXTRA/Return-YouTube-Dislikes.git
-[submodule "Tweaks/YouGroupSettings"]
-    path = Tweaks/YouGroupSettings
-    url = https://github.com/PoomSmart/YouGroupSettings.git
 [submodule "Tweaks/YouLoop"]
     path = Tweaks/YouLoop
     url = https://github.com/bhackel/YouLoop.git

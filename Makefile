@@ -40,8 +40,9 @@ PACKAGE_VERSION = $(YOUTUBE_VERSION)-$(YTPLUS_VERSION)
 # the final package. It is a space-separated list of ids from TWEAK_REGISTRY and
 # PAYLOAD_TWEAKS. Override it on the command line, e.g.
 #   make package ENABLED_TWEAKS="YouPiP YTUHD"
-DEFAULT_TWEAKS = YTPlus Gonerino Return-YouTube-Dislikes YTABConfig YouQuality \
-	YouSlider YTweaks YTVideoOverlay YTClassicVideoQuality YouTubeLegacy
+DEFAULT_TWEAKS = YTPlus YTweaks YTABConfig YTClassicVideoQuality \
+	Return-YouTube-Dislikes YTVideoOverlay YouQuality YouSlider YouTubeLegacy \
+	YouGroupSettings FLEXing
 
 ENABLED_TWEAKS ?= $(DEFAULT_TWEAKS)
 
