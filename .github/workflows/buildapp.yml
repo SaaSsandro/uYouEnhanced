@@ -249,14 +249,14 @@ jobs:
         run: |
           IPA_IN="main/packages/${{ steps.build_package.outputs.package }}"
           OUTNAME="YTPlus_${{ env.YT_VERSION }}_v${{ inputs.ytplus_version }}.ipa"
-          tweaks="OpenYouTubeSafariExtension.appex"
-          # The .deb carries this repo's own tweak; only inject it when wanted.
-          if [ "${{ inputs.include_uyouenhanced }}" = "true" ]; then
-            for f in main/packages/*.deb; do
-              [ -f "$f" ] && tweaks="$tweaks $f"
-            done
-          fi
-          cyan -i "$IPA_IN" -o "$OUTNAME" -uwef $tweaks -n "${{ inputs.app_name }}" -b ${{ inputs.bundle_id }}
+          # Only the freshly cloned Safari extension is injected here: the
+          # theos-jailed build already put every compiled tweak into the app.
+          # The .deb Theos writes is not injectable - the stager reuses Theos'
+          # package staging directory, so that deb contains a full copy of the
+          # app (13k files, 229 MB main binary) and handing it to cyan would
+          # duplicate the whole app inside the IPA.
+          cyan -i "$IPA_IN" -o "$OUTNAME" -uwef OpenYouTubeSafariExtension.appex \
+            -n "${{ inputs.app_name }}" -b ${{ inputs.bundle_id }}
 
       - name: Strip Unresignable Extensions From Final IPA
         id: strip_ipa
