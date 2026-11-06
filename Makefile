@@ -28,6 +28,11 @@ endif
 PACKAGE_NAME = $(TWEAK_NAME)
 PACKAGE_VERSION = $(YOUTUBE_VERSION)-$(YTPLUS_VERSION)
 
+# uYouEnhanced is this repo's own aggregate tweak. With INCLUDE_UYOUENHANCED=0 it
+# is still compiled - Theos needs the root target - but it is neither injected
+# nor embedded, and neither is its settings bundle or the Alderis framework.
+INCLUDE_UYOUENHANCED ?= 0
+
 # ---------------------------------------------------------------------------
 # Optional tweaks
 # ---------------------------------------------------------------------------
@@ -136,9 +141,16 @@ endif
 $(TWEAK_NAME)_INJECT_DYLIBS = $(ENABLED_TWEAK_DYLIBS)
 
 $(TWEAK_NAME)_EMBED_LIBRARIES = $(THEOS_OBJ_DIR)/libcolorpicker.dylib
-$(TWEAK_NAME)_EMBED_FRAMEWORKS = $(_THEOS_LOCAL_DATA_DIR)/$(THEOS_OBJ_DIR_NAME)/install_Alderis.xcarchive/Products/var/jb/Library/Frameworks/Alderis.framework
 $(TWEAK_NAME)_EMBED_BUNDLES = $(wildcard Bundles/*.bundle)
 $(TWEAK_NAME)_EMBED_EXTENSIONS = $(wildcard Extensions/*.appex)
+
+ifeq ($(INCLUDE_UYOUENHANCED),1)
+$(TWEAK_NAME)_EMBED_FRAMEWORKS = $(_THEOS_LOCAL_DATA_DIR)/$(THEOS_OBJ_DIR_NAME)/install_Alderis.xcarchive/Products/var/jb/Library/Frameworks/Alderis.framework
+else
+# uYouEnhanced is the only consumer of the Alderis framework and of its own
+# settings bundle; libcolorpicker still comes from Alderis' lcpshim subproject.
+$(TWEAK_NAME)_EMBED_BUNDLES := $(filter-out Bundles/uYouPlus.bundle,$($(TWEAK_NAME)_EMBED_BUNDLES))
+endif
 
 INSTALL_TARGET_PROCESSES = YouTube
 REMOVE_EXTENSIONS = 1
@@ -164,6 +176,15 @@ ifneq ($(filter YTPlus,$(ENABLED_TWEAKS)),)
 $(TWEAK_NAME)_INJECT_DYLIBS += $(YTPLUS_DYLIB)
 $(TWEAK_NAME)_EMBED_BUNDLES += $(YTPLUS_BUNDLE)
 endif
+
+ifeq ($(INCLUDE_UYOUENHANCED),0)
+# Drops the root dylib from theos-jailed's inject list. The workflow relaxes the
+# quoting around "$DYLIB" there, so an empty value contributes no entry at all.
+export DYLIB :=
+endif
+
+# Name the packed IPA after the payload it mostly carries.
+export OUTPUT_NAME := YTPlus_$(PACKAGE_VERSION).ipa
 
 include $(THEOS)/makefiles/common.mk
 

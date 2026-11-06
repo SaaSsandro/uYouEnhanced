@@ -21,6 +21,11 @@ on:
         default: "6.0"
         required: true
         type: string
+      include_uyouenhanced:
+        description: "Inject this repo's own tweak (uYouEnhanced) as well"
+        default: false
+        required: false
+        type: boolean
       decrypted_youtube_url:
         description: "Direct URL of the decrypted YouTube IPA"
         default: ""
@@ -132,7 +137,18 @@ jobs:
         env:
           THEOS: ${{ github.workspace }}/theos
 
+      # theos-jailed builds inject_files=("$DYLIB" $INJECT_DYLIBS). With
+      # INCLUDE_UYOUENHANCED=0 that variable is empty, so relax the quoting to
+      # let an empty value contribute no entry (and no empty rpath string).
+      - name: Allow an empty root dylib
+        run: |
+          FILE=theos-jailed/module/bin/ipa.sh
+          sed -i '' 's/inject_files=("\$DYLIB" \$INJECT_DYLIBS)/inject_files=($DYLIB $INJECT_DYLIBS)/' "$FILE"
+          grep -n 'inject_files=' "$FILE"
+
       - name: Fix Theos broken pipe issue
+        env:
+          THEOS: ${{ github.workspace }}/theos
         run: |
           find $THEOS -name "*.sh" -type f | while read -r SCRIPT; do
             if grep -q '| head' "$SCRIPT" 2>/dev/null; then
@@ -214,6 +230,7 @@ jobs:
             BUNDLE_ID="${{ inputs.bundle_id }}" \
             DISPLAY_NAME="${{ inputs.app_name }}" \
             YTPLUS_VERSION="${{ inputs.ytplus_version }}" \
+            INCLUDE_UYOUENHANCED="${{ inputs.include_uyouenhanced && '1' || '0' }}" \
             ENABLED_TWEAKS="$(printf '%s' '${{ inputs.enabled_tweaks }}' | tr -s ', ' ' ')"
           echo "package=$(ls -t packages | head -n1)" >> $GITHUB_OUTPUT
 
@@ -231,11 +248,14 @@ jobs:
       - name: Inject Tweaks Into IPA
         run: |
           IPA_IN="main/packages/${{ steps.build_package.outputs.package }}"
-          OUTNAME="uYouEnhanced_${{ env.YT_VERSION }}_v${{ inputs.ytplus_version }}.ipa"
+          OUTNAME="YTPlus_${{ env.YT_VERSION }}_v${{ inputs.ytplus_version }}.ipa"
           tweaks="OpenYouTubeSafariExtension.appex"
-          for f in main/packages/*.deb; do
-            [ -f "$f" ] && tweaks="$tweaks $f"
-          done
+          # The .deb carries this repo's own tweak; only inject it when wanted.
+          if [ "${{ inputs.include_uyouenhanced }}" = "true" ]; then
+            for f in main/packages/*.deb; do
+              [ -f "$f" ] && tweaks="$tweaks $f"
+            done
+          fi
           cyan -i "$IPA_IN" -o "$OUTNAME" -uwef $tweaks -n "${{ inputs.app_name }}" -b ${{ inputs.bundle_id }}
 
       - name: Strip Unresignable Extensions From Final IPA
@@ -243,9 +263,9 @@ jobs:
         run: |
           set -euo pipefail
 
-          OUTNAME="uYouEnhanced_${{ env.YT_VERSION }}_v${{ inputs.ytplus_version }}.ipa"
+          OUTNAME="YTPlus_${{ env.YT_VERSION }}_v${{ inputs.ytplus_version }}.ipa"
           if [ ! -f "$OUTNAME" ]; then
-            OUTNAME="$(basename "$(find . -maxdepth 3 -name 'uYouEnhanced_*.ipa' -print -quit)")"
+            OUTNAME="$(basename "$(find . -maxdepth 3 -name 'YTPlus_*.ipa' -print -quit)")"
           fi
           echo "Final IPA: $OUTNAME"
 
@@ -342,7 +362,7 @@ jobs:
           YTPLUS_VERSION: ${{ inputs.ytplus_version }}
           YOUTUBE_VERSION: ${{ steps.prepare_youtube.outputs.youtube_version }}
         with:
-          name: uYouEnhanced_${{ env.YOUTUBE_VERSION }}_${{ env.YTPLUS_VERSION }}
+          name: YTPlus_${{ env.YOUTUBE_VERSION }}_${{ env.YTPLUS_VERSION }}
           path: ${{ github.workspace }}/main/packages/${{ env.RENAMED_IPA || steps.strip_ipa.outputs.final_ipa }}
           if-no-files-found: error
 
