@@ -119,7 +119,8 @@ def read_makefile(path):
 
     return (f"{variables['TWEAK_NAME']}.dylib",
             dylibs,
-            variables.get("DEFAULT_TWEAKS", "").split())
+            variables.get("DEFAULT_TWEAKS", "").split(),
+            variables.get("INCLUDE_UYOUENHANCED", "1") != "0")
 
 
 def command_size(dylib_name):
@@ -131,11 +132,14 @@ def command_size(dylib_name):
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--tweaks", default="", help="enabled tweak ids (default: DEFAULT_TWEAKS)")
+    parser.add_argument("--include-root", action="store_true",
+                        help="the repo's own tweak is injected too")
     parser.add_argument("--makefile", default="Makefile")
     parser.add_argument("--binary", default="Payload/YouTube.app/YouTube")
     args = parser.parse_args()
 
-    repo_dylib, registry, defaults = read_makefile(args.makefile)
+    repo_dylib, registry, defaults, root_from_makefile = read_makefile(args.makefile)
+    include_root = args.include_root or root_from_makefile
     enabled = [t for t in re.split(r"[\s,]+", args.tweaks) if t] or defaults
 
     unknown = [t for t in enabled if t not in registry]
@@ -146,7 +150,7 @@ def main():
     budget = section_offset - MACH_HEADER_64
     free = budget - sizeofcmds
 
-    entries = [(repo_dylib, "repo tweak")]
+    entries = [(repo_dylib, "repo tweak")] if include_root else []
     entries += [(registry[t] + ".dylib", t) for t in enabled]
 
     print(f"binary     : {args.binary}")

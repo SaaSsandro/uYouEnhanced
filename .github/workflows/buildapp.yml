@@ -137,14 +137,20 @@ jobs:
         env:
           THEOS: ${{ github.workspace }}/theos
 
-      # theos-jailed builds inject_files=("$DYLIB" $INJECT_DYLIBS). With
-      # INCLUDE_UYOUENHANCED=0 that variable is empty, so relax the quoting to
-      # let an empty value contribute no entry (and no empty rpath string).
-      - name: Allow an empty root dylib
+      # Two patches to theos-jailed's ipa.sh:
+      #  * it builds inject_files=("$DYLIB" $INJECT_DYLIBS). With
+      #    INCLUDE_UYOUENHANCED=0 that variable is empty, so relax the quoting to
+      #    let an empty value contribute no entry (and no empty rpath string).
+      #  * it copies every entry into Frameworks/ verbatim, so one stray
+      #    directory in either list copies a whole tree into the app. Only
+      #    regular files and bundle-like directories may pass; anything else is
+      #    printed so the list that produced it can be fixed.
+      - name: Patch theos-jailed injection list
         run: |
           FILE=theos-jailed/module/bin/ipa.sh
           sed -i '' 's/inject_files=("\$DYLIB" \$INJECT_DYLIBS)/inject_files=($DYLIB $INJECT_DYLIBS)/' "$FILE"
-          grep -n 'inject_files=' "$FILE"
+          sed -i '' 's|copy "\$file" "\$full_copy_path"$|[[ -f "$file" \|\| "$file" == *.framework \|\| "$file" == *.appex \|\| "$file" == *.bundle ]] \&\& copy "$file" "$full_copy_path" \|\| echo "SKIP non-file inject entry: $file"|' "$FILE"
+          grep -n 'inject_files=\|full_copy_path' "$FILE"
 
       - name: Fix Theos broken pipe issue
         env:
@@ -199,6 +205,7 @@ jobs:
           python3 Tools/check-inject-budget.py \
             --binary Payload/YouTube.app/YouTube \
             --makefile Makefile \
+            ${{ inputs.include_uyouenhanced && '--include-root' || '' }} \
             --tweaks "${{ inputs.enabled_tweaks }}"
 
       - name: Restore FFmpegKit cache
