@@ -34,6 +34,14 @@ NSBundle *TweakBundle() {
     return bundle;
 }
 
+// The group header used to come out empty: the string lives in the settings
+// bundle, which has no .lproj for most device languages. Fall back to the name.
+static NSString *TweakGroupTitle() {
+    NSBundle *tweakBundle = TweakBundle();
+    NSString *title = LOC(@"TWEAKS");
+    return title.length ? title : @"Tweaks";
+}
+
 %hook YTAppSettingsGroupPresentationData
 
 + (NSArray <YTSettingsGroupData *> *)orderedGroups {
@@ -78,14 +86,25 @@ NSBundle *TweakBundle() {
     return tweaks;
 }
 
+- (NSString *)title {
+    if (self.type == TweakGroup)
+        return TweakGroupTitle();
+    return %orig;
+}
+
+- (NSArray <NSNumber *> *)orderedCategories {
+    if (self.type == TweakGroup)
+        return [[self class] tweaks];
+    return %orig;
+}
+
+// YTSettingsGroupData declares both the properties above and these per-type
+// methods; it is not documented which pair the settings screen reads, so both
+// are hooked. Without the property hooks the header stayed empty and the
+// sections kept YouTube's own order even though the array was sorted.
 - (NSString *)titleForSettingGroupType:(NSUInteger)type {
-    if (type == TweakGroup) {
-        NSBundle *tweakBundle = TweakBundle();
-        NSString *title = LOC(@"TWEAKS");
-        // The bundle lookup fails when the device language has no .lproj here,
-        // which used to leave the group header empty - fall back to the name.
-        return title.length ? title : @"Tweaks";
-    }
+    if (type == TweakGroup)
+        return TweakGroupTitle();
     return %orig;
 }
 
