@@ -54,6 +54,33 @@ static NSString *TweakGroupTitle() {
 
 %end
 
+%hook YTAppSettingsPresentationData
+
+// The settings screen does not lay the sections out in the group's
+// orderedCategories: -[YTSettingsViewController
+// enumerateSectionControllersWithBlock:] walks this global order instead, which
+// is why sorting the group's array never changed anything. Move the tweak
+// categories to the front - YTPlus first, the rest in the order
+// +[YTSettingsGroupData tweaks] defines - and leave YouTube's own order intact.
++ (NSArray <NSNumber *> *)settingsCategoryOrder {
+    NSArray <NSNumber *> *order = %orig;
+    NSMutableArray <NSNumber *> *result = [NSMutableArray arrayWithCapacity:order.count];
+
+    for (NSNumber *category in [%c(YTSettingsGroupData) tweaks]) {
+        if ([order containsObject:category] && ![result containsObject:category]) {
+            [result addObject:category];
+        }
+    }
+    for (NSNumber *category in order) {
+        if (![result containsObject:category]) {
+            [result addObject:category];
+        }
+    }
+    return result;
+}
+
+%end
+
 %hook YTSettingsGroupData
 
 %new(@@:)
