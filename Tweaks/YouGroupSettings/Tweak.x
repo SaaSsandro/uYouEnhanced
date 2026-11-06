@@ -24,6 +24,41 @@ static const NSInteger FLEXHelperForYT = 'fhyt';
 // group. This is the title that section carries.
 static NSString *const YTPlusSectionTitle = @"YouTube Plus";
 
+// ---------------------------------------------------------------------------
+// TEMPORARY diagnostic - set to 0 (or delete this block and the #if blocks
+// below) once the section order is understood.
+//
+//   * every grouped section title gets its index in +tweaks prepended, so the
+//     on-device order can be compared with the order the tweak asks for
+//   * the group header lists which hooks actually fired, which tells us which
+//     of the settings code paths are live
+// ---------------------------------------------------------------------------
+#define YGS_DEBUG_ORDER 1
+
+#if YGS_DEBUG_ORDER
+static BOOL ygsSawOrderedGroups = NO;
+static BOOL ygsSawTitle = NO;
+static BOOL ygsSawOrderedCategories = NO;
+static BOOL ygsSawOrderedCategoriesForType = NO;
+static BOOL ygsSawSettingsCategoryOrder = NO;
+static BOOL ygsSawEnumerate = NO;
+static BOOL ygsSawOrganize = NO;
+static BOOL ygsSawSetSectionControllers = NO;
+
+static NSString *YGSHookFlags(void) {
+    NSMutableArray <NSString *> *flags = [NSMutableArray array];
+    if (ygsSawOrderedGroups) [flags addObject:@"og"];
+    if (ygsSawTitle) [flags addObject:@"t"];
+    if (ygsSawOrderedCategories) [flags addObject:@"oc"];
+    if (ygsSawOrderedCategoriesForType) [flags addObject:@"oct"];
+    if (ygsSawSettingsCategoryOrder) [flags addObject:@"sco"];
+    if (ygsSawEnumerate) [flags addObject:@"en"];
+    if (ygsSawOrganize) [flags addObject:@"gz"];
+    if (ygsSawSetSectionControllers) [flags addObject:@"ssc"];
+    return [flags componentsJoinedByString:@","];
+}
+#endif
+
 NSBundle *TweakBundle() {
     static NSBundle *bundle = nil;
     static dispatch_once_t onceToken;
@@ -39,12 +74,19 @@ NSBundle *TweakBundle() {
 static NSString *TweakGroupTitle() {
     NSBundle *tweakBundle = TweakBundle();
     NSString *title = LOC(@"TWEAKS");
-    return title.length ? title : @"Tweaks";
+    if (!title.length) title = @"Tweaks";
+#if YGS_DEBUG_ORDER
+    title = [title stringByAppendingFormat:@" ⟨%@⟩", YGSHookFlags()];
+#endif
+    return title;
 }
 
 %hook YTAppSettingsGroupPresentationData
 
 + (NSArray <YTSettingsGroupData *> *)orderedGroups {
+#if YGS_DEBUG_ORDER
+    ygsSawOrderedGroups = YES;
+#endif
     NSArray <YTSettingsGroupData *> *groups = %orig;
     NSMutableArray <YTSettingsGroupData *> *mutableGroups = [groups mutableCopy];
     YTSettingsGroupData *tweakGroup = [[%c(YTSettingsGroupData) alloc] initWithGroupType:TweakGroup];
@@ -63,6 +105,9 @@ static NSString *TweakGroupTitle() {
 // categories to the front - YTPlus first, the rest in the order
 // +[YTSettingsGroupData tweaks] defines - and leave YouTube's own order intact.
 + (NSArray <NSNumber *> *)settingsCategoryOrder {
+#if YGS_DEBUG_ORDER
+    ygsSawSettingsCategoryOrder = YES;
+#endif
     NSArray <NSNumber *> *order = %orig;
     NSMutableArray <NSNumber *> *result = [NSMutableArray arrayWithCapacity:order.count];
 
@@ -114,12 +159,18 @@ static NSString *TweakGroupTitle() {
 }
 
 - (NSString *)title {
+#if YGS_DEBUG_ORDER
+    ygsSawTitle = YES;
+#endif
     if (self.type == TweakGroup)
         return TweakGroupTitle();
     return %orig;
 }
 
 - (NSArray <NSNumber *> *)orderedCategories {
+#if YGS_DEBUG_ORDER
+    ygsSawOrderedCategories = YES;
+#endif
     if (self.type == TweakGroup)
         return [[self class] tweaks];
     return %orig;
@@ -136,6 +187,9 @@ static NSString *TweakGroupTitle() {
 }
 
 - (NSArray <NSNumber *> *)orderedCategoriesForGroupType:(NSUInteger)type {
+#if YGS_DEBUG_ORDER
+    ygsSawOrderedCategoriesForType = YES;
+#endif
     if (type == TweakGroup)
         return [[self class] tweaks];
     return %orig;
@@ -155,11 +209,39 @@ static NSString *TweakGroupTitle() {
         [tweaks insertObject:@(category) atIndex:0];
     }
 
+#if YGS_DEBUG_ORDER
+    // Show which slot the tweak assigns to this section, so the rendered order
+    // can be compared against it.
+    NSInteger index = [tweaks indexOfObject:@(category)];
+    if (index != NSNotFound) {
+        title = [NSString stringWithFormat:@"%ld · %@", (long)index, title];
+    }
+#endif
+
     if (icon == nil && [tweaks containsObject:@(category)]) {
         icon = [%c(YTIIcon) new];
         icon.iconType = YT_SETTINGS;
     }
     %orig;
 }
+
+#if YGS_DEBUG_ORDER
+
+- (void)enumerateSectionControllersWithBlock:(id)block {
+    ygsSawEnumerate = YES;
+    %orig;
+}
+
+- (void)organizeSectionControllersInGroups {
+    ygsSawOrganize = YES;
+    %orig;
+}
+
+- (void)setSectionControllers:(id)controllers {
+    ygsSawSetSectionControllers = YES;
+    %orig;
+}
+
+#endif
 
 %end
