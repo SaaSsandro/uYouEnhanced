@@ -88,9 +88,6 @@
 [submodule "Tweaks/protobuf"]
     path = Tweaks/protobuf
     url = https://github.com/protocolbuffers/protobuf.git
-[submodule "Tweaks/uYouLocalization"]
-    path = Tweaks/uYouLocalization
-    url = https://github.com/dayanch96/uYouLocalization.git
 [submodule "Tweaks/libundirect"]
 	path = Tweaks/libundirect
 	url = https://github.com/opa334/libundirect.git
@@ -100,9 +97,6 @@
 [submodule "Tweaks/YouTubeLegacy"]
 	path = Tweaks/YouTubeLegacy
 	url = https://github.com/aricloverEXTRA/YouTubeLegacy.git
-[submodule "Tweaks/uYouUnofficial"]
-	path = Tweaks/uYouUnofficial
-	url = https://github.com/aricloverEXTRA/uYouUnofficial.git
 [submodule "Tweaks/YTAmbientLight"]
 	path = Tweaks/YTAmbientLight
 	url = https://github.com/aricloverEXTRA/YTAmbientLight.git

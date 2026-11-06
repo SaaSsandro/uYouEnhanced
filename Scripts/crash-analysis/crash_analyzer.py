@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-uYouEnhanced static crash analyzer — no dependencies, runs anywhere Python 3 runs
+YouTubeBuilder static crash analyzer — no dependencies, runs anywhere Python 3 runs
 (GitHub macOS runners AND Windows locally).
 
 What it does with a built IPA (or its extracted binaries):
@@ -15,8 +15,8 @@ What it does with a built IPA (or its extracted binaries):
                    (unrecognized-selector crashes come from exactly this set)
 
 Typical usage on an extracted IPA:
-  python3 crash_analyzer.py symbolicate Frameworks/uYouEnhanced.dylib 81012
-  python3 crash_analyzer.py audit Payload/YouTube.app/YouTube Frameworks/uYouEnhanced.dylib
+  python3 crash_analyzer.py symbolicate Frameworks/YTLite.dylib 81012
+  python3 crash_analyzer.py audit Payload/YouTube.app/YouTube Frameworks/YTLite.dylib
 """
 
 import argparse

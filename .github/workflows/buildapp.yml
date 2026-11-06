@@ -1,16 +1,11 @@
 # Original idea by @ISnackable. Thanks to him for handling the hardest parts!
 # https://github.com/ISnackable/YTCubePlus/blob/main/.github/workflows/Build.yml
 
-name: Build and Release uYouEnhanced
+name: Build and Release YouTubeBuilder
 
 on:
   workflow_dispatch:
     inputs:
-      build_ffmpeg:
-        description: "Build FFmpegKit from source (cached; first run takes 30-90 min usually.)"
-        default: true
-        required: false
-        type: boolean
       sdk_version:
         description: "iOS SDK Version"
         default: "26.5"
@@ -21,11 +16,11 @@ on:
         default: "6.0"
         required: true
         type: string
-      include_uyouenhanced:
-        description: "Inject this repo's own tweak (uYouEnhanced) as well"
-        default: false
+      ipa_prefix:
+        description: "Prefix of the produced IPA file name"
+        default: "YTPlus"
         required: false
-        type: boolean
+        type: string
       decrypted_youtube_url:
         description: "Direct URL of the decrypted YouTube IPA"
         default: ""
@@ -58,7 +53,7 @@ on:
         type: boolean
       enabled_tweaks:
         description: "Optional tweaks to include (space- or comma-separated ids)"
-        default: "DontEatMyContent FLEXing Return-YouTube-Dislikes YTABConfig YouGroupSettings YTIcons YouLoop YouMute YouPiP YouQuality YouSlider YouSpeed YouTimeStamp YTHoldForSpeed YTVideoOverlay YTweaks YouTubeLegacy"
+        default: "YTPlus Gonerino Return-YouTube-Dislikes YTABConfig YouQuality YouSlider YTweaks YTVideoOverlay YTClassicVideoQuality YouTubeLegacy"
         required: false
         type: string
 
@@ -68,7 +63,7 @@ concurrency:
 
 jobs:
   build:
-    name: Build uYouEnhanced
+    name: Build YouTubeBuilder
     # The iOS 27 SDK can only be consumed by the Xcode 27 toolchain: its .tbd
     # stubs list the arm64e.x1 target (unknown to Xcode 26's linker) and its
     # headers use attributes such as stack_protector_ignore (unknown to Xcode
@@ -137,12 +132,12 @@ jobs:
         env:
           THEOS: ${{ github.workspace }}/theos
 
-      # ipa.sh builds inject_files=("$DYLIB" $INJECT_DYLIBS). With
-      # INCLUDE_UYOUENHANCED=0 that variable is empty, and an empty source arg
-      # makes rsync copy the whole build directory (rsync before 3.2.3 reads ""
-      # as ".") into the app's Frameworks/ - that is what produced the ~700 MB
-      # IPA and the ~1.4 GB installed app. Relax the quoting so an empty value
-      # contributes no array entry at all.
+      # ipa.sh builds inject_files=("$DYLIB" $INJECT_DYLIBS). The Makefile exports
+      # DYLIB empty - the root target has no sources and is never injected - and
+      # an empty source arg makes rsync copy the whole build directory (rsync
+      # before 3.2.3 reads "" as ".") into the app's Frameworks/ - that is what
+      # produced the ~700 MB IPA and the ~1.4 GB installed app. Relax the quoting
+      # so an empty value contributes no array entry at all.
       #
       # ./theos-jailed/install copies the module into $THEOS, so the script the
       # build reads is the installed one; patching the clone is a no-op.
@@ -215,28 +210,7 @@ jobs:
           python3 Tools/check-inject-budget.py \
             --binary Payload/YouTube.app/YouTube \
             --makefile Makefile \
-            ${{ inputs.include_uyouenhanced && '--include-root' || '' }} \
             --tweaks "${{ inputs.enabled_tweaks }}"
-
-      - name: Restore FFmpegKit cache
-        id: ffmpeg_cache
-        uses: actions/cache/restore@v6
-        with:
-          path: main/modules/ffmpeg
-          key: ffmpegkit-${{ runner.os }}-${{ hashFiles('main/tools/fetch-ffmpegkit.sh') }}
-
-      - name: Build FFmpegKit from source
-        if: ${{ inputs.build_ffmpeg && steps.ffmpeg_cache.outputs.cache-hit != 'true' }}
-        run: |
-          cd main
-          bash tools/fetch-ffmpegkit.sh
-
-      - name: Save FFmpegKit cache
-        if: ${{ inputs.build_ffmpeg && steps.ffmpeg_cache.outputs.cache-hit != 'true' && hashFiles('main/modules/ffmpeg/**') != '' }}
-        uses: actions/cache/save@v6
-        with:
-          path: main/modules/ffmpeg
-          key: ${{ steps.ffmpeg_cache.outputs.cache-primary-key }}
 
       - name: Build Package
         id: build_package
@@ -247,7 +221,7 @@ jobs:
             BUNDLE_ID="${{ inputs.bundle_id }}" \
             DISPLAY_NAME="${{ inputs.app_name }}" \
             YTPLUS_VERSION="${{ inputs.ytplus_version }}" \
-            INCLUDE_UYOUENHANCED="${{ inputs.include_uyouenhanced && '1' || '0' }}" \
+            IPA_PREFIX="${{ inputs.ipa_prefix || 'YTPlus' }}" \
             ENABLED_TWEAKS="$(printf '%s' '${{ inputs.enabled_tweaks }}' | tr -s ', ' ' ')"
           echo "package=$(ls -t packages | head -n1)" >> $GITHUB_OUTPUT
 
@@ -265,7 +239,7 @@ jobs:
       - name: Inject Tweaks Into IPA
         run: |
           IPA_IN="main/packages/${{ steps.build_package.outputs.package }}"
-          OUTNAME="YTPlus_${{ env.YT_VERSION }}_v${{ inputs.ytplus_version }}.ipa"
+          OUTNAME="${{ inputs.ipa_prefix || 'YTPlus' }}_${{ env.YT_VERSION }}_v${{ inputs.ytplus_version }}.ipa"
           # Only the freshly cloned Safari extension is injected here: the
           # theos-jailed build already put every compiled tweak into the app, so
           # handing it the .deb as well would just copy those files a second
@@ -279,9 +253,9 @@ jobs:
         run: |
           set -euo pipefail
 
-          OUTNAME="YTPlus_${{ env.YT_VERSION }}_v${{ inputs.ytplus_version }}.ipa"
+          OUTNAME="${{ inputs.ipa_prefix || 'YTPlus' }}_${{ env.YT_VERSION }}_v${{ inputs.ytplus_version }}.ipa"
           if [ ! -f "$OUTNAME" ]; then
-            OUTNAME="$(basename "$(find . -maxdepth 3 -name 'YTPlus_*.ipa' -print -quit)")"
+            OUTNAME="$(basename "$(find . -maxdepth 3 -name '${{ inputs.ipa_prefix || 'YTPlus' }}_*.ipa' -print -quit)")"
           fi
           echo "Final IPA: $OUTNAME"
 
@@ -317,7 +291,7 @@ jobs:
           rm -rf iconwork && mkdir -p iconwork/icons && cd iconwork
           unzip -q "../$IPA" "Payload/YouTube.app/Info.plist"
           PLIST="Payload/YouTube.app/Info.plist"
-          RAW_ICON_SRC="../main/Localizations/uYouPlus.bundle/AppIcons"
+          RAW_ICON_SRC="../main/Localizations/AppIcons"
           ICON_SRC="icons"
           for f in "$RAW_ICON_SRC"/*.png; do
             name="$(basename "$f")"
@@ -357,20 +331,6 @@ jobs:
           cd .. && rm -rf iconwork
           echo "Alternate icons registered into $(basename "$IPA")"
 
-      - name: Rebrand IPA Filename (3.0.4 -> 3.0.5)
-        run: |
-          set -euo pipefail
-          cd main/packages
-          OLD="${{ steps.strip_ipa.outputs.final_ipa }}"
-          NEW="${OLD//3.0.4/3.0.5}"
-          if [ "$OLD" != "$NEW" ] && [ -f "$OLD" ]; then
-            mv "$OLD" "$NEW"
-            echo "Renamed: $OLD -> $NEW"
-          else
-            echo "No 3.0.4 in filename or file missing: $OLD"
-          fi
-          echo "RENAMED_IPA=$NEW" >> "$GITHUB_ENV"
-
       - name: Upload Artifact
         if: ${{ inputs.upload_artifact }}
         uses: actions/upload-artifact@v7
@@ -378,8 +338,8 @@ jobs:
           YTPLUS_VERSION: ${{ inputs.ytplus_version }}
           YOUTUBE_VERSION: ${{ steps.prepare_youtube.outputs.youtube_version }}
         with:
-          name: YTPlus_${{ env.YOUTUBE_VERSION }}_${{ env.YTPLUS_VERSION }}
-          path: ${{ github.workspace }}/main/packages/${{ env.RENAMED_IPA || steps.strip_ipa.outputs.final_ipa }}
+          name: ${{ inputs.ipa_prefix || 'YTPlus' }}_${{ env.YOUTUBE_VERSION }}_${{ env.YTPLUS_VERSION }}
+          path: ${{ github.workspace }}/main/packages/${{ steps.strip_ipa.outputs.final_ipa }}
           if-no-files-found: error
 
       - name: Create Release

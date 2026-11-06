@@ -1,4 +1,4 @@
-"""Disassemble a function in uYouEnhanced.dylib and resolve selector references.
+"""Disassemble a function in an injected tweak dylib and resolve selector references.
 Usage: python Scripts/disasm_find_sel.py <dylib> <start> <end>
 """
 import struct

@@ -19,8 +19,8 @@ body:
 
 - type: input
   attributes:
-    label: uYouEnhanced version
-    placeholder: "21.xx.x-3.0.5"
+    label: YTPlus version
+    placeholder: "6.0"
   validations:
     required: true
 
@@ -38,7 +38,7 @@ body:
     label: My feature request
     description: |
       What should it do, and why is it useful? If the feature exists in another
-      tweak (YouMod, YTLite, uYou...), mention where you saw it.
+      tweak (YouMod, YTLite, ...), mention where you saw it.
   validations:
     required: true
 

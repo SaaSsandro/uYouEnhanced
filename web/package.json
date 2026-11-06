@@ -1,9 +1,9 @@
 {
-  "name": "uyouenhanced-web-ui",
+  "name": "youtubebuilder-web-ui",
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Local web front-end for the uYouEnhanced build workflow",
+  "description": "Local web front-end for the YouTubeBuilder build workflow",
   "scripts": {
     "start": "node server.js"
   },

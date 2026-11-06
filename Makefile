@@ -15,7 +15,7 @@ export SDK_PATH = $(THEOS)/sdks/iPhoneOS$(SDK_VERSION).sdk/
 export SYSROOT = $(SDK_PATH)
 export ARCHS = arm64
 
-TWEAK_NAME ?= uYouEnhanced
+TWEAK_NAME ?= YouTubeBuilder
 DISPLAY_NAME ?= YouTube
 BUNDLE_ID ?= com.google.ios.youtube
 
@@ -28,21 +28,20 @@ endif
 PACKAGE_NAME = $(TWEAK_NAME)
 PACKAGE_VERSION = $(YOUTUBE_VERSION)-$(YTPLUS_VERSION)
 
-# uYouEnhanced is this repo's own aggregate tweak. With INCLUDE_UYOUENHANCED=0 it
-# is still compiled - Theos needs the root target - but it is neither injected
-# nor embedded, and neither is its settings bundle or the Alderis framework.
-INCLUDE_UYOUENHANCED ?= 0
+# The root target has no sources of its own: it exists only to carry the
+# injection, because theos-jailed injects everything listed in
+# $(TWEAK_NAME)_INJECT_DYLIBS into the app. Its own dylib is therefore never
+# injected - see the DYLIB export below.
 
 # ---------------------------------------------------------------------------
 # Optional tweaks
 # ---------------------------------------------------------------------------
 # ENABLED_TWEAKS selects which optional tweaks are compiled and injected into
-# the final package. It is a space-separated list of ids from TWEAK_REGISTRY.
-# Override it on the command line, e.g.
+# the final package. It is a space-separated list of ids from TWEAK_REGISTRY and
+# PAYLOAD_TWEAKS. Override it on the command line, e.g.
 #   make package ENABLED_TWEAKS="YouPiP YTUHD"
-DEFAULT_TWEAKS = DontEatMyContent FLEXing Return-YouTube-Dislikes YTABConfig \
-	YouGroupSettings YTIcons YouLoop YouMute YouPiP YouQuality YouSlider \
-	YouSpeed YouTimeStamp YTHoldForSpeed YTVideoOverlay YTweaks YouTubeLegacy
+DEFAULT_TWEAKS = YTPlus Gonerino Return-YouTube-Dislikes YTABConfig YouQuality \
+	YouSlider YTweaks YTVideoOverlay YTClassicVideoQuality YouTubeLegacy
 
 ENABLED_TWEAKS ?= $(DEFAULT_TWEAKS)
 
@@ -50,7 +49,7 @@ TWEAK_REGISTRY = DontEatMyContent FLEXing Return-YouTube-Dislikes YTABConfig \
 	YouGroupSettings YTIcons YouLoop YouMute YouPiP YouQuality YouSlider \
 	YouSpeed YouTimeStamp YTHoldForSpeed YTVideoOverlay YTweaks YouTubeLegacy \
 	iSponsorBlock YTUHD YTAmbientLight YTClassicVideoQuality IAmYouTube \
-	NoYTPremium uYouLocalization uYouUnofficial
+	NoYTPremium
 
 # <id>_SUBPROJECT is the Theos subproject directory, <id>_DYLIB is the dylib
 # it produces and that gets injected into YouTube.
@@ -100,15 +99,11 @@ IAmYouTube_SUBPROJECT = Tweaks/IAmYouTube
 IAmYouTube_DYLIB = IAmYouTube
 NoYTPremium_SUBPROJECT = Tweaks/NoYTPremium
 NoYTPremium_DYLIB = NoYTPremium
-uYouLocalization_SUBPROJECT = Tweaks/uYouLocalization
-uYouLocalization_DYLIB = uYouLocalization
-uYouUnofficial_SUBPROJECT = Tweaks/uYouUnofficial
-uYouUnofficial_DYLIB = uYouUnofficial
 
-# PAYLOAD_TWEAKS are shipped as prebuilt .deb files that the build unpacks and
-# injects (the way uYou used to be handled). They have no subproject to compile,
-# but they are selectable through ENABLED_TWEAKS like any other tweak.
-PAYLOAD_TWEAKS = YTPlus
+# PAYLOAD_TWEAKS ship as prebuilt .deb files that the build downloads, unpacks
+# and injects. They have no subproject to compile, but they are selectable
+# through ENABLED_TWEAKS like any other tweak.
+PAYLOAD_TWEAKS = YTPlus Gonerino
 
 UNKNOWN_TWEAKS = $(filter-out $(TWEAK_REGISTRY) $(PAYLOAD_TWEAKS),$(ENABLED_TWEAKS))
 ifneq ($(UNKNOWN_TWEAKS),)
@@ -117,11 +112,6 @@ endif
 
 ENABLED_TWEAK_SUBPROJECTS = $(foreach t,$(filter-out $(PAYLOAD_TWEAKS),$(ENABLED_TWEAKS)),$($(t)_SUBPROJECT))
 ENABLED_TWEAK_DYLIBS = $(foreach t,$(filter-out $(PAYLOAD_TWEAKS),$(ENABLED_TWEAKS)),$(THEOS_OBJ_DIR)/$($(t)_DYLIB).dylib)
-
-$(TWEAK_NAME)_FILES := $(wildcard Sources/*.xm) $(wildcard Sources/*.x) $(wildcard Sources/*.m)
-$(TWEAK_NAME)_FRAMEWORKS = UIKit Foundation AVFoundation AVKit Photos Accelerate CoreMotion GameController VideoToolbox Security MediaPlayer JavaScriptCore
-$(TWEAK_NAME)_LIBRARIES = bz2 c++ iconv z sqlite3
-$(TWEAK_NAME)_CFLAGS = -fobjc-arc -Wno-deprecated-declarations -Wno-unused-but-set-variable -Wno-nullability-completeness -DTWEAK_VERSION=\"$(PACKAGE_VERSION)\"
 
 export libcolorpicker_ARCHS = arm64
 export libFLEX_ARCHS = arm64
@@ -140,17 +130,13 @@ endif
 
 $(TWEAK_NAME)_INJECT_DYLIBS = $(ENABLED_TWEAK_DYLIBS)
 
+# YouSlider's settings UI links Alderis (EXTRA_FRAMEWORKS) and libcolorpicker
+# (LIBRARIES), so both have to be in the app bundle: the framework comes from the
+# Alderis subproject, the dylib from its lcpshim subproject.
 $(TWEAK_NAME)_EMBED_LIBRARIES = $(THEOS_OBJ_DIR)/libcolorpicker.dylib
+$(TWEAK_NAME)_EMBED_FRAMEWORKS = $(_THEOS_LOCAL_DATA_DIR)/$(THEOS_OBJ_DIR_NAME)/install_Alderis.xcarchive/Products/var/jb/Library/Frameworks/Alderis.framework
 $(TWEAK_NAME)_EMBED_BUNDLES = $(wildcard Bundles/*.bundle)
 $(TWEAK_NAME)_EMBED_EXTENSIONS = $(wildcard Extensions/*.appex)
-
-ifeq ($(INCLUDE_UYOUENHANCED),1)
-$(TWEAK_NAME)_EMBED_FRAMEWORKS = $(_THEOS_LOCAL_DATA_DIR)/$(THEOS_OBJ_DIR_NAME)/install_Alderis.xcarchive/Products/var/jb/Library/Frameworks/Alderis.framework
-else
-# uYouEnhanced is the only consumer of the Alderis framework and of its own
-# settings bundle; libcolorpicker still comes from Alderis' lcpshim subproject.
-$(TWEAK_NAME)_EMBED_BUNDLES := $(filter-out Bundles/uYouPlus.bundle,$($(TWEAK_NAME)_EMBED_BUNDLES))
-endif
 
 INSTALL_TARGET_PROCESSES = YouTube
 REMOVE_EXTENSIONS = 1
@@ -177,7 +163,22 @@ $(TWEAK_NAME)_INJECT_DYLIBS += $(YTPLUS_DYLIB)
 $(TWEAK_NAME)_EMBED_BUNDLES += $(YTPLUS_BUNDLE)
 endif
 
-ifeq ($(INCLUDE_UYOUENHANCED),0)
+# Gonerino ships as a prebuilt package as well, so the same shape applies: the
+# dylib and the settings bundle are constants rather than build outputs.
+Gonerino_DYLIB = Gonerino
+GONERINO_VERSION = 1.8.10
+GONERINO_URL = https://github.com/castdrian/Gonerino/releases/download/v$(GONERINO_VERSION)/dev.adrian.gonerino_$(GONERINO_VERSION)_iphoneos-arm64.deb
+GONERINO_PATH = Tweaks/Gonerino
+GONERINO_DEB = $(GONERINO_PATH)/gonerino_$(GONERINO_VERSION).deb
+GONERINO_LIBRARY = $(GONERINO_PATH)/var/jb/Library
+GONERINO_DYLIB = $(GONERINO_LIBRARY)/MobileSubstrate/DynamicLibraries/$(Gonerino_DYLIB).dylib
+GONERINO_BUNDLE = $(GONERINO_PATH)/$(Gonerino_DYLIB).bundle
+
+ifneq ($(filter Gonerino,$(ENABLED_TWEAKS)),)
+$(TWEAK_NAME)_INJECT_DYLIBS += $(GONERINO_DYLIB)
+$(TWEAK_NAME)_EMBED_BUNDLES += $(GONERINO_BUNDLE)
+endif
+
 # Drops the root dylib from theos-jailed's inject list. Upstream builds that list
 # as inject_files=("$DYLIB" $INJECT_DYLIBS), so an empty value would become an
 # empty argument - and rsync before 3.2.3 reads an empty source arg as "." and
@@ -185,10 +186,11 @@ ifeq ($(INCLUDE_UYOUENHANCED),0)
 # unquotes the variable in the installed ipa.sh and fails the build if it cannot,
 # so an empty DYLIB contributes no entry at all.
 export DYLIB :=
-endif
 
-# Name the packed IPA after the payload it mostly carries.
-export OUTPUT_NAME := YTPlus_$(PACKAGE_VERSION).ipa
+# Name the packed IPA after the payload it mostly carries. IPA_PREFIX is a
+# build input so the workflow (and the app driving it) can rename the file.
+IPA_PREFIX ?= YTPlus
+export OUTPUT_NAME := $(IPA_PREFIX)_$(PACKAGE_VERSION).ipa
 
 include $(THEOS)/makefiles/common.mk
 
@@ -199,9 +201,9 @@ endif
 
 include $(THEOS_MAKE_PATH)/tweak.mk
 
-.PHONY: internal-clean before-all before-package
+.PHONY: internal-clean before-all
 internal-clean::
-	@rm -rf $(YTPLUS_PATH)
+	@rm -rf $(YTPLUS_PATH) $(GONERINO_PATH)
 
 ifneq ($(JAILBROKEN),1)
 ifneq ($(filter YTPlus,$(ENABLED_TWEAKS)),)
@@ -225,13 +227,25 @@ before-all::
 	$(PRINT_FORMAT_BLUE) "YTPlus ready";
 endif
 
-before-package::
-	@bash tools/stage-ffmpeg.sh "$(THEOS_PROJECT_DIR)/Bundles"
-
-else
-before-package::
-	@mkdir -p $(THEOS_STAGING_DIR)/Library/Application\ Support; cp -r Localizations/uYouPlus.bundle $(THEOS_STAGING_DIR)/Library/Application\ Support/
+ifneq ($(filter Gonerino,$(ENABLED_TWEAKS)),)
+before-all::
+	@if [[ ! -f $(GONERINO_DEB) ]]; then \
+		mkdir -p $(GONERINO_PATH); \
+		$(PRINT_FORMAT_BLUE) "Downloading Gonerino"; \
+		curl -s -L "$(GONERINO_URL)" -o $(GONERINO_DEB); \
+	fi; \
+	if [[ ! -f $(GONERINO_DYLIB) ]]; then \
+		$(PRINT_FORMAT_BLUE) "Extracting Gonerino"; \
+		tar -xf $(GONERINO_DEB) -C $(GONERINO_PATH); \
+		tar -xf $(GONERINO_PATH)/data.tar.* -C $(GONERINO_PATH); \
+	fi; \
+	if [[ ! -d $(GONERINO_BUNDLE) && -d "$(GONERINO_LIBRARY)/Application Support/$(Gonerino_DYLIB).bundle" ]]; then \
+		mv "$(GONERINO_LIBRARY)/Application Support/$(Gonerino_DYLIB).bundle" $(GONERINO_BUNDLE); \
+	fi; \
+	if [[ ! -f $(GONERINO_DYLIB) || ! -d $(GONERINO_BUNDLE) ]]; then \
+		$(PRINT_FORMAT_ERROR) "Failed to extract Gonerino - expected $(GONERINO_DYLIB) and $(GONERINO_BUNDLE)"; exit 1; \
+	fi; \
+	$(PRINT_FORMAT_BLUE) "Gonerino ready";
 endif
-after-stage::
-	@bash tools/stage-ffmpeg.sh "$(THEOS_STAGING_DIR)"
+endif
 

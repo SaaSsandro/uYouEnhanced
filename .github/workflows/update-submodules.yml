@@ -32,10 +32,6 @@ jobs:
           git add .
           git submodule update --init --recursive --remote Tweaks/Return-YouTube-Dislikes
           git add .
-          git submodule update --init --recursive --remote Tweaks/uYouLocalization
-          git add .
-          git submodule update --init --recursive --remote Tweaks/uYouUnofficial
-          git add .
           git submodule update --init --recursive --remote Tweaks/YouGroupSettings
           git add .
           git submodule update --init --recursive --remote Tweaks/YouLoop

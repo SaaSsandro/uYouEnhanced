@@ -10,9 +10,9 @@ import sys
 REFDIR = os.path.join(os.path.dirname(__file__), "..", "..", "crash-analysis-report", "refdata")
 
 DYLIB_NAMES = [
-    "YouSpeed", "libcolorpicker", "YouPiP", "YouGroupSettings",
-    "DontEatMyContent", "YouLoop", "iSponsorBlock", "YTABConfig",
-    "libFLEX", "YTVideoOverlay", "YouTimeStamp", "uYouEnhanced",
+    "YTLite", "Gonerino", "YouSpeed", "libcolorpicker", "YouPiP",
+    "YouGroupSettings", "DontEatMyContent", "YouLoop", "iSponsorBlock",
+    "YTABConfig", "libFLEX", "YTVideoOverlay", "YouTimeStamp",
     "YTweaks", "YouSlider", "YTIcons", "YouTubeDislikesReturn",
     "YouQuality",
 ]

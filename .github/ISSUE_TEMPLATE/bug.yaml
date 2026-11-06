@@ -1,5 +1,5 @@
 name: Bug Report
-description: Report a crash or misbehavior in uYouEnhanced
+description: Report a crash or misbehavior in a YouTubeBuilder build
 title: "[Bug] Replace this with your title"
 labels: bug
 body:
@@ -12,11 +12,11 @@ body:
 
 - type: checkboxes
   attributes:
-    label: Have you read the Wiki?
+    label: Have you read the README?
     description: |
-      Please ensure you have read the [**Wiki**](https://github.com/arichornlover/uYouEnhanced/wiki)
+      Please ensure you have read the [**README**](README.md)
     options:
-    - label: Yes, I have read the Wiki
+    - label: Yes, I have read the README
       required: true
 
 - type: markdown
@@ -40,15 +40,15 @@ body:
 - type: input
   attributes:
     label: YouTube version (optional, depends when building on a different YT version)
-    description: "Found in the uYouEnhanced settings header, or Settings → General → About inside YouTube. (Spoofed versions don't count)"
+    description: "Found in the YTPlus settings header, or Settings → General → About inside YouTube. (Spoofed versions don't count)"
     placeholder: "21.xx.x"
   validations:
     required: false
 
 - type: input
   attributes:
-    label: uYouEnhanced version
-    placeholder: "21.xx.x-3.0.5"
+    label: YTPlus version
+    placeholder: "6.0"
     description: "**latest or newest is NOT a version number!**"
   validations:
     required: true
@@ -122,8 +122,8 @@ body:
 
 - type: dropdown
   attributes:
-    label: Are you using the newest version of uYouEnhanced?
-    description: Update to the [latest version](https://github.com/arichornlover/uYouEnhanced/releases) to see if it fixes your issue
+    label: Are you using the newest build?
+    description: Rebuild from the latest `main` to see if it fixes your issue
     options:
       - "Yes, I'm using the latest version"
       - "No, I'll explain at the end"
@@ -143,9 +143,8 @@ body:
   attributes:
     label: How was this IPA built or obtained? (Optional)
     options:
-      - buildapp.yml (GitHub Actions — as described in the [Wiki - Building](https://github.com/arichornlover/uYouEnhanced/wiki/Building))
+      - buildapp.yml (GitHub Actions — as described in the [README](README.md))
       - build.sh (Shell script)
-      - AltStore Source (from https://raw.githubusercontent.com/arichornlover/arichornlover.github.io/main/apps.json)
       - Other (untrusted or unofficial sources)
   validations:
     required: false

@@ -2,9 +2,8 @@
 .DS_Store
 packages/
 tmp/
-Tweaks/uYou/*
-!Tweaks/uYou/.gitkeep
 Tweaks/YTPlus/
+Tweaks/Gonerino/
 Resources/
 *.ipa
 .vscode
@@ -14,3 +13,5 @@ crash-analysis-report/
 *.ips
 web/server.log
 Payload
+.idea/
+theos-jailed/

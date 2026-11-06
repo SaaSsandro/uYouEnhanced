@@ -19,8 +19,8 @@ body:
 
 - type: input
   attributes:
-    label: uYouEnhanced version
-    placeholder: "21.xx.x-3.0.5"
+    label: YTPlus version
+    placeholder: "6.0"
   validations:
     required: false
 

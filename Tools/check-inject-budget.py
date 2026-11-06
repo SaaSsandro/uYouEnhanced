@@ -86,7 +86,7 @@ def read_macho(path):
 
 
 def read_makefile(path):
-    """Return (repo dylib, {tweak id: dylib name}, default tweaks)."""
+    """Return ({tweak id: dylib name}, default tweaks)."""
     lines, buffer = [], ""
     with open(path, encoding="utf-8", errors="replace") as handle:
         for line in handle:
@@ -105,7 +105,7 @@ def read_makefile(path):
         if match:
             variables.setdefault(match.group(1), match.group(2).strip())
 
-    for key in ("TWEAK_NAME", "TWEAK_REGISTRY"):
+    for key in ("TWEAK_REGISTRY",):
         if key not in variables:
             die(f"{path}: {key} not found")
 
@@ -117,10 +117,7 @@ def read_makefile(path):
             die(f"{path}: no {identifier}_DYLIB for {identifier}")
         dylibs[identifier] = name
 
-    return (f"{variables['TWEAK_NAME']}.dylib",
-            dylibs,
-            variables.get("DEFAULT_TWEAKS", "").split(),
-            variables.get("INCLUDE_UYOUENHANCED", "1") != "0")
+    return (dylibs, variables.get("DEFAULT_TWEAKS", "").split())
 
 
 def command_size(dylib_name):
@@ -132,14 +129,11 @@ def command_size(dylib_name):
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--tweaks", default="", help="enabled tweak ids (default: DEFAULT_TWEAKS)")
-    parser.add_argument("--include-root", action="store_true",
-                        help="the repo's own tweak is injected too")
     parser.add_argument("--makefile", default="Makefile")
     parser.add_argument("--binary", default="Payload/YouTube.app/YouTube")
     args = parser.parse_args()
 
-    repo_dylib, registry, defaults, root_from_makefile = read_makefile(args.makefile)
-    include_root = args.include_root or root_from_makefile
+    registry, defaults = read_makefile(args.makefile)
     enabled = [t for t in re.split(r"[\s,]+", args.tweaks) if t] or defaults
 
     unknown = [t for t in enabled if t not in registry]
@@ -150,8 +144,7 @@ def main():
     budget = section_offset - MACH_HEADER_64
     free = budget - sizeofcmds
 
-    entries = [(repo_dylib, "repo tweak")] if include_root else []
-    entries += [(registry[t] + ".dylib", t) for t in enabled]
+    entries = [(registry[t] + ".dylib", t) for t in enabled]
 
     print(f"binary     : {args.binary}")
     print(f"ncmds      : {ncmds}")

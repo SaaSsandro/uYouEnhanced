@@ -1,10 +1,10 @@
-Package: com.arichornlover.uyouenhanced
-Name: uYouEnhanced
+Package: com.saassandro.youtubebuilder
+Name: YouTubeBuilder
 Architecture: iphoneos-arm
-Description: The continuation of uYouPlus
+Description: Injects a selectable set of YouTube tweaks into a decrypted YouTube IPA
 Maintainer: arichornlover
 Author: qnblackcat
 Section: Tweaks
 Depends: mobilesubstrate (>= 0.9.5000)
-Conflicts: com.level3tjg.ytminiplayerenabler, com.level3tjg.ytnohovercards, com.ps.noytpremium, com.ps.ytnopaidpromo, com.lilacvibes.ytstockvolumehud, net.sarahh12099.youtubereborn, com.twickd.sarahh12099.youtube-reborn, h.ryan.youtubereborn, weeb.lillie.enhancerforyoutubepremium, com.ps.uyoucompat, com.ichitaso.uyouplus, com.miro.uyouunofficial
+Conflicts: com.level3tjg.ytminiplayerenabler, com.level3tjg.ytnohovercards, com.ps.noytpremium, com.ps.ytnopaidpromo, com.lilacvibes.ytstockvolumehud, net.sarahh12099.youtubereborn, com.twickd.sarahh12099.youtube-reborn, h.ryan.youtubereborn, weeb.lillie.enhancerforyoutubepremium
 Recommends: com.ps.youmute, com.ps.youpip, com.ps.youquality, com.ps.ytabconfig, com.ps.ytvideooverlay, libflex, weeb.lillie.youtubedislikesreturn
