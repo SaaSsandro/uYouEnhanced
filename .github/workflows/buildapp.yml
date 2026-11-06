@@ -265,6 +265,32 @@ jobs:
           cyan -i "$IPA_IN" -o "$OUTNAME" -uwef OpenYouTubeSafariExtension.appex \
             -n "${{ inputs.app_name }}" -b ${{ inputs.bundle_id }}
 
+      # The build sometimes leaves non-dylib entries inside the app's Frameworks
+      # directory - a stray directory in one of theos-jailed's lists copies a
+      # whole tree, which blew the IPA up to 680 MB. Drop everything there that
+      # is neither a dylib nor a framework, and print it, so the offending entry
+      # shows up in the log.
+      - name: Prune unexpected Frameworks entries
+        run: |
+          cd main
+          OUTNAME="YTPlus_${{ env.YT_VERSION }}_v${{ inputs.ytplus_version }}.ipa"
+          if [ ! -f "$OUTNAME" ]; then
+            OUTNAME="$(basename "$(find . -maxdepth 3 -name 'YTPlus_*.ipa' -print -quit)")"
+          fi
+          JUNK="$(unzip -Z1 "$OUTNAME" \
+            | awk -F/ '/^Payload\/YouTube\.app\/Frameworks\/[^\/]+\/?$/ { print $4 }' \
+            | sed 's|/$||' | grep -vE '\.(dylib|framework)$' | sort -u || true)"
+          if [ -z "$JUNK" ]; then
+            echo "Frameworks contains only dylibs and frameworks - nothing to prune"
+          else
+            echo "Unexpected entries in Frameworks (removing):"
+            printf '  %s\n' $JUNK
+            for d in $JUNK; do
+              zip -q -d "$OUTNAME" "Payload/YouTube.app/Frameworks/$d/*" "Payload/YouTube.app/Frameworks/$d" || true
+            done
+            ls -l "$OUTNAME"
+          fi
+
       - name: Strip Unresignable Extensions From Final IPA
         id: strip_ipa
         run: |
