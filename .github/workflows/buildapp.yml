@@ -137,20 +137,30 @@ jobs:
         env:
           THEOS: ${{ github.workspace }}/theos
 
-      # Two patches to theos-jailed's ipa.sh:
-      #  * it builds inject_files=("$DYLIB" $INJECT_DYLIBS). With
-      #    INCLUDE_UYOUENHANCED=0 that variable is empty, so relax the quoting to
-      #    let an empty value contribute no entry (and no empty rpath string).
-      #  * it copies every entry into Frameworks/ verbatim, so one stray
-      #    directory in either list copies a whole tree into the app. Only
-      #    regular files and bundle-like directories may pass; anything else is
-      #    printed so the list that produced it can be fixed.
+      # ipa.sh builds inject_files=("$DYLIB" $INJECT_DYLIBS). With
+      # INCLUDE_UYOUENHANCED=0 that variable is empty, and an empty source arg
+      # makes rsync copy the whole build directory (rsync before 3.2.3 reads ""
+      # as ".") into the app's Frameworks/ - that is what produced the ~700 MB
+      # IPA and the ~1.4 GB installed app. Relax the quoting so an empty value
+      # contributes no array entry at all.
+      #
+      # ./theos-jailed/install copies the module into $THEOS, so the script the
+      # build reads is the installed one; patching the clone is a no-op.
       - name: Patch theos-jailed injection list
+        env:
+          THEOS: ${{ github.workspace }}/theos
         run: |
-          FILE=theos-jailed/module/bin/ipa.sh
+          FILE="$THEOS/mod/jailed/bin/ipa.sh"
           sed -i '' 's/inject_files=("\$DYLIB" \$INJECT_DYLIBS)/inject_files=($DYLIB $INJECT_DYLIBS)/' "$FILE"
-          sed -i '' 's|copy "\$file" "\$full_copy_path"$|[[ -f "$file" \|\| "$file" == *.framework \|\| "$file" == *.appex \|\| "$file" == *.bundle ]] \&\& copy "$file" "$full_copy_path" \|\| echo "SKIP non-file inject entry: $file"|' "$FILE"
-          grep -n 'inject_files=\|full_copy_path' "$FILE"
+          grep -n 'inject_files=' "$FILE"
+          # The patch above is only as good as the line it matches: if upstream
+          # rewords it, an empty $DYLIB must still not end up as a quoted (or
+          # empty) array element, so refuse to build instead of shipping a
+          # several-hundred-MB IPA again.
+          if grep -Eq 'inject_files=\([^)]*"[^)]*DYLIB' "$FILE"; then
+            echo "error: $FILE still quotes a DYLIB in inject_files - did theos-jailed change?" >&2
+            exit 1
+          fi
 
       - name: Fix Theos broken pipe issue
         env:
@@ -257,39 +267,12 @@ jobs:
           IPA_IN="main/packages/${{ steps.build_package.outputs.package }}"
           OUTNAME="YTPlus_${{ env.YT_VERSION }}_v${{ inputs.ytplus_version }}.ipa"
           # Only the freshly cloned Safari extension is injected here: the
-          # theos-jailed build already put every compiled tweak into the app.
-          # The .deb Theos writes is not injectable - the stager reuses Theos'
-          # package staging directory, so that deb contains a full copy of the
-          # app (13k files, 229 MB main binary) and handing it to cyan would
-          # duplicate the whole app inside the IPA.
+          # theos-jailed build already put every compiled tweak into the app, so
+          # handing it the .deb as well would just copy those files a second
+          # time. (The .deb also carries the staged app, so cyan's extractor
+          # would drag nested bundles and frameworks out of it.)
           cyan -i "$IPA_IN" -o "$OUTNAME" -uwef OpenYouTubeSafariExtension.appex \
             -n "${{ inputs.app_name }}" -b ${{ inputs.bundle_id }}
-
-      # The build sometimes leaves non-dylib entries inside the app's Frameworks
-      # directory - a stray directory in one of theos-jailed's lists copies a
-      # whole tree, which blew the IPA up to 680 MB. Drop everything there that
-      # is neither a dylib nor a framework, and print it, so the offending entry
-      # shows up in the log.
-      - name: Prune unexpected Frameworks entries
-        run: |
-          cd main
-          OUTNAME="YTPlus_${{ env.YT_VERSION }}_v${{ inputs.ytplus_version }}.ipa"
-          if [ ! -f "$OUTNAME" ]; then
-            OUTNAME="$(basename "$(find . -maxdepth 3 -name 'YTPlus_*.ipa' -print -quit)")"
-          fi
-          JUNK="$(unzip -Z1 "$OUTNAME" \
-            | awk -F/ '/^Payload\/YouTube\.app\/Frameworks\/[^\/]+\/?$/ { print $4 }' \
-            | sed 's|/$||' | grep -vE '\.(dylib|framework)$' | sort -u || true)"
-          if [ -z "$JUNK" ]; then
-            echo "Frameworks contains only dylibs and frameworks - nothing to prune"
-          else
-            echo "Unexpected entries in Frameworks (removing):"
-            printf '  %s\n' $JUNK
-            for d in $JUNK; do
-              zip -q -d "$OUTNAME" "Payload/YouTube.app/Frameworks/$d/*" "Payload/YouTube.app/Frameworks/$d" || true
-            done
-            ls -l "$OUTNAME"
-          fi
 
       - name: Strip Unresignable Extensions From Final IPA
         id: strip_ipa

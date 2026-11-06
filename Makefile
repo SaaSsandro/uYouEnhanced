@@ -178,8 +178,12 @@ $(TWEAK_NAME)_EMBED_BUNDLES += $(YTPLUS_BUNDLE)
 endif
 
 ifeq ($(INCLUDE_UYOUENHANCED),0)
-# Drops the root dylib from theos-jailed's inject list. The workflow relaxes the
-# quoting around "$DYLIB" there, so an empty value contributes no entry at all.
+# Drops the root dylib from theos-jailed's inject list. Upstream builds that list
+# as inject_files=("$DYLIB" $INJECT_DYLIBS), so an empty value would become an
+# empty argument - and rsync before 3.2.3 reads an empty source arg as "." and
+# copies the whole build directory into the app (a ~700 MB IPA). The workflow
+# unquotes the variable in the installed ipa.sh and fails the build if it cannot,
+# so an empty DYLIB contributes no entry at all.
 export DYLIB :=
 endif
 
