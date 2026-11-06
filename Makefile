@@ -149,12 +149,16 @@ FINALPACKAGE = 1
 # constants rather than build outputs. If upstream renames the library or the
 # bundle, adjust these lines - the extraction step fails loudly if they change.
 YTPlus_DYLIB = YTLite
+YTPlus_BUNDLE = YTLite
 YTPLUS_URL = https://repo.ballermc.com/tubevault/%5BROOTLESS%5Dcom.dvntm.ytlite_$(YTPLUS_VERSION)_iphoneos-arm64_patched_SpyG.deb
 YTPLUS_PATH = Tweaks/YTPlus
 YTPLUS_DEB = $(YTPLUS_PATH)/ytplus_$(YTPLUS_VERSION).deb
 YTPLUS_LIBRARY = $(YTPLUS_PATH)/var/jb/Library
 YTPLUS_DYLIB = $(YTPLUS_LIBRARY)/MobileSubstrate/DynamicLibraries/$(YTPlus_DYLIB).dylib
-YTPLUS_BUNDLE = $(YTPLUS_LIBRARY)/Application\ Support/YTLite.bundle
+# The bundle ships under "Application Support", but theos-jailed reads
+# EMBED_BUNDLES by word splitting, and a backslash-escaped space does not
+# survive that - the extraction below moves the bundle to a path without spaces.
+YTPLUS_BUNDLE = $(YTPLUS_PATH)/$(YTPlus_BUNDLE).bundle
 
 ifneq ($(filter YTPlus,$(ENABLED_TWEAKS)),)
 $(TWEAK_NAME)_INJECT_DYLIBS += $(YTPLUS_DYLIB)
@@ -187,8 +191,11 @@ before-all::
 		tar -xf $(YTPLUS_DEB) -C $(YTPLUS_PATH); \
 		tar -xf $(YTPLUS_PATH)/data.tar.* -C $(YTPLUS_PATH); \
 	fi; \
+	if [[ ! -d $(YTPLUS_BUNDLE) && -d "$(YTPLUS_LIBRARY)/Application Support/$(YTPlus_BUNDLE).bundle" ]]; then \
+		mv "$(YTPLUS_LIBRARY)/Application Support/$(YTPlus_BUNDLE).bundle" $(YTPLUS_BUNDLE); \
+	fi; \
 	if [[ ! -f $(YTPLUS_DYLIB) || ! -d $(YTPLUS_BUNDLE) ]]; then \
-		$(PRINT_FORMAT_ERROR) "Failed to extract YTPlus - expected $(YTPLUS_DYLIB)"; exit 1; \
+		$(PRINT_FORMAT_ERROR) "Failed to extract YTPlus - expected $(YTPLUS_DYLIB) and $(YTPLUS_BUNDLE)"; exit 1; \
 	fi; \
 	$(PRINT_FORMAT_BLUE) "YTPlus ready";
 endif
