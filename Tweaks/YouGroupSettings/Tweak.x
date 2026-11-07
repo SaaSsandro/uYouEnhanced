@@ -1,18 +1,11 @@
 #import <YouTubeHeader/YTIIcon.h>
 #import <YouTubeHeader/YTSettingsGroupData.h>
-#import <YouTubeHeader/YTSettingsViewController.h>
 #import <PSHeader/Misc.h>
 
 #define LOC(x) [tweakBundle localizedStringForKey:x value:nil table:nil]
 
 @interface YTSettingsGroupData (YouGroupSettings)
 + (NSMutableArray <NSNumber *> *)tweaks;
-@end
-
-// Undeclared in the header but present in the binary: unregisters a section,
-// which is what reordering our sections needs.
-@interface YTSettingsViewController (YouGroupSettings)
-- (void)removeSectionControllerForSettingCategory:(NSInteger)category;
 @end
 
 static const NSInteger TweakGroup = 'psyt';
@@ -32,88 +25,30 @@ static const NSInteger FLEXHelperForYT = 'fhyt';
 static NSString *const YTPlusSectionTitle = @"YouTube Plus";
 
 // ---------------------------------------------------------------------------
-// TEMPORARY diagnostic - set to 0 (or delete this block and the #if blocks
-// below) once the order is settled.
+// The row order inside the group is YouTube's own and cannot be set from here.
 //
-//   * every grouped section title gets its position in +tweaks prepended
-//   * the group header lists which of the settings code paths are live
-// ---------------------------------------------------------------------------
-#define YGS_DEBUG_ORDER 1
-
-#if YGS_DEBUG_ORDER
-static BOOL ygsSawOrderedGroups = NO;
-static BOOL ygsSawTitle = NO;
-static BOOL ygsSawOrderedCategories = NO;
-static BOOL ygsSawOrderedCategoriesForType = NO;
-static BOOL ygsSawOrganize = NO;
-
-static NSString *YGSHookFlags(void) {
-    NSMutableArray <NSString *> *flags = [NSMutableArray array];
-    if (ygsSawOrderedGroups) [flags addObject:@"og"];
-    if (ygsSawTitle) [flags addObject:@"t"];
-    if (ygsSawOrderedCategories) [flags addObject:@"oc"];
-    if (ygsSawOrderedCategoriesForType) [flags addObject:@"oct"];
-    if (ygsSawOrganize) [flags addObject:@"gz"];
-    return [flags componentsJoinedByString:@","];
-}
-#endif
-
-// ---------------------------------------------------------------------------
-// Reordering.
+// Everything below was verified by disassembling the settings screen of the
+// YouTube build in Payload/ and by hooking each candidate on the device:
 //
-// Everything the tweak can set on the settings data model turned out not to
-// drive the row order: the settings screen never reads a section's -items, the
-// global category order path is not even called, and sorting the group's
-// category list only changed membership. The order is fixed when a tweak's
-// section is registered, i.e. before the group is assembled.
+//   * +[YTAppSettingsGroupPresentationData orderedGroups] and the group's
+//     orderedCategories decide membership and the header - that is why a tweak
+//     shows up in the group at all, and why the array here only controls
+//     membership, not order
+//   * +[YTAppSettingsPresentationData settingsCategoryOrder],
+//     -[YTSettingsViewController enumerateSectionControllersWithBlock:],
+//     -setSectionControllers and a section's -items are never called, so none of
+//     them can be the source either
+//   * -[YTSettingsSectionController initWithTitle:items:] is called, but
+//     reordering its items changes nothing, and the screen never reads the
+//     section's items back
+//   * unregistering our sections with removeSectionControllerForSettingCategory:
+//     and registering them again inside organizeSectionControllersInGroups (the
+//     one lever that reaches far enough) crashes the settings screen
 //
-// So remember every registration of our sections and, right before YouTube
-// builds the groups, unregister and register them again in +tweaks order. Only
-// our own categories are touched.
+// So the order is fixed before any of this runs, inside YouTube's own settings
+// model. The tweak keeps the parts that do work: the group, its header, the gear
+// icons and the membership.
 // ---------------------------------------------------------------------------
-#define YGS_REORDER_SECTIONS 1
-
-#if YGS_REORDER_SECTIONS
-static BOOL ygsReplaying = NO;
-static BOOL ygsReordered = NO;
-static NSMutableDictionary <NSNumber *, NSArray *> *ygsRegistrations = nil;
-
-static void YGSRememberRegistration(NSInteger category, NSArray *arguments) {
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        ygsRegistrations = [NSMutableDictionary new];
-    });
-    ygsRegistrations[@(category)] = arguments;
-}
-
-static void YGSReorderSections(YTSettingsViewController *controller) {
-    if (ygsReordered || ygsRegistrations.count < 2) return;
-    ygsReordered = YES;
-
-    NSArray <NSNumber *> *order = [%c(YTSettingsGroupData) tweaks];
-    NSMutableArray <NSNumber *> *mine = [NSMutableArray array];
-    for (NSNumber *category in order) {
-        if (ygsRegistrations[category]) [mine addObject:category];
-    }
-    if (mine.count < 2) return;
-
-    for (NSNumber *category in mine) {
-        [controller removeSectionControllerForSettingCategory:category.integerValue];
-    }
-
-    ygsReplaying = YES;
-    for (NSNumber *category in mine) {
-        NSArray *arguments = ygsRegistrations[category];
-        [controller setSectionItems:arguments[0]
-                        forCategory:category.integerValue
-                              title:arguments[1]
-                               icon:arguments[2] == [NSNull null] ? nil : arguments[2]
-                   titleDescription:arguments[3] == [NSNull null] ? nil : arguments[3]
-                       headerHidden:[arguments[4] boolValue]];
-    }
-    ygsReplaying = NO;
-}
-#endif
 
 NSBundle *TweakBundle() {
     static NSBundle *bundle = nil;
@@ -130,38 +65,24 @@ NSBundle *TweakBundle() {
 static NSString *TweakGroupTitle() {
     NSBundle *tweakBundle = TweakBundle();
     NSString *title = LOC(@"TWEAKS");
-    if (!title.length) title = @"Tweaks";
-#if YGS_DEBUG_ORDER
-    title = [title stringByAppendingFormat:@" ⟨%@⟩", YGSHookFlags()];
-#endif
-    return title;
+    return title.length ? title : @"Tweaks";
 }
 
-/// Shared handling for both setSectionItems: variants: adopt YTPlus' category
-/// and (in the diagnostic build) prefix the title with its position.
-static NSString *YGSNoteSection(NSInteger category, NSString *title) {
-    NSMutableArray <NSNumber *> *tweaks = [%c(YTSettingsGroupData) tweaks];
+/// Both setSectionItems: variants share this: adopt YTPlus' category, which it
+/// never publishes, so its settings end up in the group instead of "Account".
+static void YGSAdoptYTPlusSection(NSInteger category, NSString *title) {
+    if (!title.length) return;
+    if ([title rangeOfString:YTPlusSectionTitle options:NSCaseInsensitiveSearch].location == NSNotFound) return;
 
-    if (title.length && [title rangeOfString:YTPlusSectionTitle options:NSCaseInsensitiveSearch].location != NSNotFound
-        && ![tweaks containsObject:@(category)]) {
+    NSMutableArray <NSNumber *> *tweaks = [%c(YTSettingsGroupData) tweaks];
+    if (![tweaks containsObject:@(category)]) {
         [tweaks insertObject:@(category) atIndex:0];
     }
-
-#if YGS_DEBUG_ORDER
-    NSInteger index = [tweaks indexOfObject:@(category)];
-    if (index != NSNotFound) {
-        return [NSString stringWithFormat:@"%ld · %@", (long)index, title];
-    }
-#endif
-    return title;
 }
 
 %hook YTAppSettingsGroupPresentationData
 
 + (NSArray <YTSettingsGroupData *> *)orderedGroups {
-#if YGS_DEBUG_ORDER
-    ygsSawOrderedGroups = YES;
-#endif
     NSArray <YTSettingsGroupData *> *groups = %orig;
     NSMutableArray <YTSettingsGroupData *> *mutableGroups = [groups mutableCopy];
     YTSettingsGroupData *tweakGroup = [[%c(YTSettingsGroupData) alloc] initWithGroupType:TweakGroup];
@@ -178,8 +99,8 @@ static NSString *YGSNoteSection(NSInteger category, NSString *title) {
     static NSMutableArray <NSNumber *> *tweaks = nil;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
-        // Order: YTPlus first (inserted by the section hooks when it is
-        // installed), then every other supported tweak alphabetically by name.
+        // Membership only - the display order is YouTube's (see the note above).
+        // YTPlus is prepended at runtime once its section registers.
         tweaks = [NSMutableArray new];
         [tweaks addObjectsFromArray:@[
             @(517), // DontEatMyContent
@@ -204,18 +125,12 @@ static NSString *YGSNoteSection(NSInteger category, NSString *title) {
 }
 
 - (NSString *)title {
-#if YGS_DEBUG_ORDER
-    ygsSawTitle = YES;
-#endif
     if (self.type == TweakGroup)
         return TweakGroupTitle();
     return %orig;
 }
 
 - (NSArray <NSNumber *> *)orderedCategories {
-#if YGS_DEBUG_ORDER
-    ygsSawOrderedCategories = YES;
-#endif
     if (self.type == TweakGroup)
         return [[self class] tweaks];
     return %orig;
@@ -231,9 +146,6 @@ static NSString *YGSNoteSection(NSInteger category, NSString *title) {
 }
 
 - (NSArray <NSNumber *> *)orderedCategoriesForGroupType:(NSUInteger)type {
-#if YGS_DEBUG_ORDER
-    ygsSawOrderedCategoriesForType = YES;
-#endif
     if (type == TweakGroup)
         return [[self class] tweaks];
     return %orig;
@@ -244,55 +156,19 @@ static NSString *YGSNoteSection(NSInteger category, NSString *title) {
 %hook YTSettingsViewController
 
 - (void)setSectionItems:(NSMutableArray *)sectionItems forCategory:(NSInteger)category title:(NSString *)title icon:(YTIIcon *)icon titleDescription:(NSString *)titleDescription headerHidden:(BOOL)headerHidden {
-    if (ygsReplaying) {
-        %orig;
-        return;
-    }
-
-    title = YGSNoteSection(category, title);
+    YGSAdoptYTPlusSection(category, title);
 
     if (icon == nil && [[%c(YTSettingsGroupData) tweaks] containsObject:@(category)]) {
         icon = [%c(YTIIcon) new];
         icon.iconType = YT_SETTINGS;
     }
-#if YGS_REORDER_SECTIONS
-    if ([[%c(YTSettingsGroupData) tweaks] containsObject:@(category)]) {
-        YGSRememberRegistration(category, @[sectionItems, title,
-                                           icon ?: [NSNull null],
-                                           titleDescription ?: [NSNull null],
-                                           @(headerHidden)]);
-    }
-#endif
     %orig;
 }
 
 // The 5-argument variant (no icon) is what e.g. Gonerino registers through; the
-// tweak used to ignore it, so those sections never got an index or a gear icon.
+// tweak used to ignore it, so those sections never got a gear icon.
 - (void)setSectionItems:(NSMutableArray *)sectionItems forCategory:(NSInteger)category title:(NSString *)title titleDescription:(NSString *)titleDescription headerHidden:(BOOL)headerHidden {
-    if (ygsReplaying) {
-        %orig;
-        return;
-    }
-
-    title = YGSNoteSection(category, title);
-#if YGS_REORDER_SECTIONS
-    if ([[%c(YTSettingsGroupData) tweaks] containsObject:@(category)]) {
-        YGSRememberRegistration(category, @[sectionItems, title,
-                                           [NSNull null],
-                                           titleDescription ?: [NSNull null],
-                                           @(headerHidden)]);
-    }
-#endif
-    %orig;
-}
-
-- (void)organizeSectionControllersInGroups {
-#if YGS_DEBUG_ORDER
-    ygsSawOrganize = YES;
-#endif
-#if YGS_REORDER_SECTIONS
-    YGSReorderSections(self);
-#endif
+    YGSAdoptYTPlusSection(category, title);
     %orig;
 }
 
