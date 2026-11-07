@@ -58,6 +58,9 @@ static BOOL ygsSawSettingsCategoryOrder = NO;
 static BOOL ygsSawEnumerate = NO;
 static BOOL ygsSawOrganize = NO;
 static BOOL ygsSawSetSectionControllers = NO;
+static BOOL ygsSawSectionInit = NO;
+static BOOL ygsSawItems = NO;
+static NSString *ygsItemOrder = nil;
 
 static NSString *YGSHookFlags(void) {
     NSMutableArray <NSString *> *flags = [NSMutableArray array];
@@ -69,9 +72,72 @@ static NSString *YGSHookFlags(void) {
     if (ygsSawEnumerate) [flags addObject:@"en"];
     if (ygsSawOrganize) [flags addObject:@"gz"];
     if (ygsSawSetSectionControllers) [flags addObject:@"ssc"];
+    if (ygsSawSectionInit) [flags addObject:@"si"];
+    if (ygsSawItems) [flags addObject:@"it"];
     return [flags componentsJoinedByString:@","];
 }
 #endif
+
+/// Order of a group's items, expressed as their positions in +tweaks. Items
+/// whose category is unknown keep their relative position at the end.
+static NSArray *YGSOrderItems(NSArray *items) {
+    NSArray <NSNumber *> *order = [%c(YTSettingsGroupData) tweaks];
+    return [items sortedArrayUsingComparator:^NSComparisonResult(id lhs, id rhs) {
+        NSInteger left = NSNotFound;
+        NSInteger right = NSNotFound;
+        if ([lhs respondsToSelector:@selector(categoryId)]) left = [order indexOfObject:@([lhs categoryId])];
+        if ([rhs respondsToSelector:@selector(categoryId)]) right = [order indexOfObject:@([rhs categoryId])];
+        if (left == right) return NSOrderedSame;
+        if (left == NSNotFound) return NSOrderedDescending;
+        if (right == NSNotFound) return NSOrderedAscending;
+        return left < right ? NSOrderedAscending : NSOrderedDescending;
+    }];
+}
+
+/// True when this section holds our group's items.
+static BOOL YGSIsTweakSection(NSArray *items) {
+    NSArray <NSNumber *> *order = [%c(YTSettingsGroupData) tweaks];
+    for (id item in items) {
+        if ([item respondsToSelector:@selector(categoryId)] && [order containsObject:@([item categoryId])]) {
+            return YES;
+        }
+    }
+    return NO;
+}
+
+#if YGS_DEBUG_ORDER
+static NSString *YGSItemOrderDescription(NSArray *items) {
+    NSArray <NSNumber *> *order = [%c(YTSettingsGroupData) tweaks];
+    NSMutableArray <NSString *> *parts = [NSMutableArray array];
+    for (id item in items) {
+        NSInteger index = NSNotFound;
+        if ([item respondsToSelector:@selector(categoryId)]) index = [order indexOfObject:@([item categoryId])];
+        [parts addObject:index == NSNotFound ? @"?" : [NSString stringWithFormat:@"%ld", (long)index]];
+    }
+    return [parts componentsJoinedByString:@","];
+}
+#endif
+
+/// Shared handling for both setSectionItems: variants: adopt YTPlus' category
+/// and (in the diagnostic build) prefix the title with its position.
+static NSString *YGSNoteSection(NSInteger category, NSString *title) {
+    NSMutableArray <NSNumber *> *tweaks = [%c(YTSettingsGroupData) tweaks];
+
+    // YTPlus has no public category constant, so adopt the category of the
+    // section it registers. It is inserted at index 0 to stay the first entry.
+    if (title.length && [title rangeOfString:YTPlusSectionTitle options:NSCaseInsensitiveSearch].location != NSNotFound
+        && ![tweaks containsObject:@(category)]) {
+        [tweaks insertObject:@(category) atIndex:0];
+    }
+
+#if YGS_DEBUG_ORDER
+    NSInteger index = [tweaks indexOfObject:@(category)];
+    if (index != NSNotFound) {
+        return [NSString stringWithFormat:@"%ld · %@", (long)index, title];
+    }
+#endif
+    return title;
+}
 
 NSBundle *TweakBundle() {
     static NSBundle *bundle = nil;
@@ -91,6 +157,9 @@ static NSString *TweakGroupTitle() {
     if (!title.length) title = @"Tweaks";
 #if YGS_DEBUG_ORDER
     title = [title stringByAppendingFormat:@" ⟨%@⟩", YGSHookFlags()];
+    if (ygsItemOrder.length) {
+        title = [title stringByAppendingFormat:@" #%@", ygsItemOrder];
+    }
 #endif
     return title;
 }
@@ -218,20 +287,28 @@ static NSString *TweakGroupTitle() {
 // order can be set. Our group is the one whose title we return from
 // YTSettingsGroupData; reorder its items by their position in +tweaks.
 - (instancetype)initWithTitle:(NSString *)title items:(NSArray *)items {
+#if YGS_DEBUG_ORDER
+    ygsSawSectionInit = YES;
+#endif
     if ([title hasPrefix:@"Tweaks"] && items.count > 1) {
-        NSArray <NSNumber *> *order = [%c(YTSettingsGroupData) tweaks];
-        items = [items sortedArrayUsingComparator:^NSComparisonResult(id lhs, id rhs) {
-            NSInteger left = NSNotFound;
-            NSInteger right = NSNotFound;
-            if ([lhs respondsToSelector:@selector(categoryId)]) left = [order indexOfObject:@([lhs categoryId])];
-            if ([rhs respondsToSelector:@selector(categoryId)]) right = [order indexOfObject:@([rhs categoryId])];
-            if (left == right) return NSOrderedSame;
-            if (left == NSNotFound) return NSOrderedDescending;
-            if (right == NSNotFound) return NSOrderedAscending;
-            return left < right ? NSOrderedAscending : NSOrderedDescending;
-        }];
+        items = YGSOrderItems(items);
     }
     return %orig;
+}
+
+// The section exposes its rows through this getter, so this is the last point
+// that can decide what the settings screen shows. Record the order YouTube asks
+// for (diagnostic) and hand back the sorted one.
+- (NSArray <YTSettingsSectionItem *> *)items {
+    NSArray <YTSettingsSectionItem *> *items = %orig;
+    if (items.count > 1 && YGSIsTweakSection(items)) {
+#if YGS_DEBUG_ORDER
+        ygsSawItems = YES;
+        ygsItemOrder = YGSItemOrderDescription(items);
+#endif
+        items = YGSOrderItems(items);
+    }
+    return items;
 }
 
 %end
@@ -239,28 +316,19 @@ static NSString *TweakGroupTitle() {
 %hook YTSettingsViewController
 
 - (void)setSectionItems:(NSMutableArray *)sectionItems forCategory:(NSInteger)category title:(NSString *)title icon:(YTIIcon *)icon titleDescription:(NSString *)titleDescription headerHidden:(BOOL)headerHidden {
-    NSMutableArray <NSNumber *> *tweaks = [%c(YTSettingsGroupData) tweaks];
+    title = YGSNoteSection(category, title);
 
-    // YTPlus has no public category constant, so adopt the category of the
-    // section it registers. It is inserted at index 0 to stay the first entry.
-    if (title.length && [title rangeOfString:YTPlusSectionTitle options:NSCaseInsensitiveSearch].location != NSNotFound
-        && ![tweaks containsObject:@(category)]) {
-        [tweaks insertObject:@(category) atIndex:0];
-    }
-
-#if YGS_DEBUG_ORDER
-    // Show which slot the tweak assigns to this section, so the rendered order
-    // can be compared against it.
-    NSInteger index = [tweaks indexOfObject:@(category)];
-    if (index != NSNotFound) {
-        title = [NSString stringWithFormat:@"%ld · %@", (long)index, title];
-    }
-#endif
-
-    if (icon == nil && [tweaks containsObject:@(category)]) {
+    if (icon == nil && [[%c(YTSettingsGroupData) tweaks] containsObject:@(category)]) {
         icon = [%c(YTIIcon) new];
         icon.iconType = YT_SETTINGS;
     }
+    %orig;
+}
+
+// The 5-argument variant (no icon) is what e.g. Gonerino registers through; the
+// tweak used to ignore it, so those sections never got an index or a gear icon.
+- (void)setSectionItems:(NSMutableArray *)sectionItems forCategory:(NSInteger)category title:(NSString *)title titleDescription:(NSString *)titleDescription headerHidden:(BOOL)headerHidden {
+    title = YGSNoteSection(category, title);
     %orig;
 }
 
