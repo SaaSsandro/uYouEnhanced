@@ -1,11 +1,25 @@
 #import <YouTubeHeader/YTIIcon.h>
 #import <YouTubeHeader/YTSettingsGroupData.h>
+#import <YouTubeHeader/YTSettingsSectionController.h>
+#import <YouTubeHeader/YTSettingsSectionItem.h>
 #import <PSHeader/Misc.h>
 
 #define LOC(x) [tweakBundle localizedStringForKey:x value:nil table:nil]
 
 @interface YTSettingsGroupData (YouGroupSettings)
 + (NSMutableArray <NSNumber *> *)tweaks;
+@end
+
+// -[YTSettingsSectionController initWithTitle:items:] is what builds the section
+// out of the group's items; the header does not declare it.
+@interface YTSettingsSectionController (YouGroupSettings)
+- (instancetype)initWithTitle:(NSString *)title items:(NSArray *)items;
+@end
+
+// Not in the header either, but -[YTSettingsViewController
+// createItemFromSectionController:categoryId:] sets it on every item.
+@interface YTSettingsSectionItem (YouGroupSettings)
+- (NSInteger)categoryId;
 @end
 
 static const NSInteger TweakGroup = 'psyt';
@@ -192,6 +206,31 @@ static NSString *TweakGroupTitle() {
 #endif
     if (type == TweakGroup)
         return [[self class] tweaks];
+    return %orig;
+}
+
+%end
+
+%hook YTSettingsSectionController
+
+// Sorting the group's categories had no visible effect, and the group's items
+// already arrive in category order, so the section must be the last place the
+// order can be set. Our group is the one whose title we return from
+// YTSettingsGroupData; reorder its items by their position in +tweaks.
+- (instancetype)initWithTitle:(NSString *)title items:(NSArray *)items {
+    if ([title hasPrefix:@"Tweaks"] && items.count > 1) {
+        NSArray <NSNumber *> *order = [%c(YTSettingsGroupData) tweaks];
+        items = [items sortedArrayUsingComparator:^NSComparisonResult(id lhs, id rhs) {
+            NSInteger left = NSNotFound;
+            NSInteger right = NSNotFound;
+            if ([lhs respondsToSelector:@selector(categoryId)]) left = [order indexOfObject:@([lhs categoryId])];
+            if ([rhs respondsToSelector:@selector(categoryId)]) right = [order indexOfObject:@([rhs categoryId])];
+            if (left == right) return NSOrderedSame;
+            if (left == NSNotFound) return NSOrderedDescending;
+            if (right == NSNotFound) return NSOrderedAscending;
+            return left < right ? NSOrderedAscending : NSOrderedDescending;
+        }];
+    }
     return %orig;
 }
 
