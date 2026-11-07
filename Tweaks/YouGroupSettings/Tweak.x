@@ -20,35 +20,15 @@ static const NSInteger YouMod = 'ytmo';
 static const NSInteger FLEXHelperForYT = 'fhyt';
 
 // YTPlus (YTLite) does not publish its settings category constant, so the tweak
-// picks it up from the section YTPlus registers and moves it to the head of the
-// group. This is the title that section carries.
+// picks it up from the section YTPlus registers. That is what puts YTPlus into
+// the group instead of leaving it under "Account".
 static NSString *const YTPlusSectionTitle = @"YouTube Plus";
 
-// ---------------------------------------------------------------------------
-// The row order inside the group is YouTube's own and cannot be set from here.
-//
-// Everything below was verified by disassembling the settings screen of the
-// YouTube build in Payload/ and by hooking each candidate on the device:
-//
-//   * +[YTAppSettingsGroupPresentationData orderedGroups] and the group's
-//     orderedCategories decide membership and the header - that is why a tweak
-//     shows up in the group at all, and why the array here only controls
-//     membership, not order
-//   * +[YTAppSettingsPresentationData settingsCategoryOrder],
-//     -[YTSettingsViewController enumerateSectionControllersWithBlock:],
-//     -setSectionControllers and a section's -items are never called, so none of
-//     them can be the source either
-//   * -[YTSettingsSectionController initWithTitle:items:] is called, but
-//     reordering its items changes nothing, and the screen never reads the
-//     section's items back
-//   * unregistering our sections with removeSectionControllerForSettingCategory:
-//     and registering them again inside organizeSectionControllersInGroups (the
-//     one lever that reaches far enough) crashes the settings screen
-//
-// So the order is fixed before any of this runs, inside YouTube's own settings
-// model. The tweak keeps the parts that do work: the group, its header, the gear
-// icons and the membership.
-// ---------------------------------------------------------------------------
+// Note: the order of the rows inside the group is YouTube's own and is not
+// reachable from here. Verified against the YouTube build in Payload/: the
+// group's category list below only decides membership, the section's items and
+// the global category order are never even read, and re-registering the sections
+// crashes the settings screen. See the git history if this ever needs revisiting.
 
 NSBundle *TweakBundle() {
     static NSBundle *bundle = nil;
@@ -61,7 +41,7 @@ NSBundle *TweakBundle() {
 }
 
 // The group header used to come out empty: the string lives in the settings
-// bundle, which has no .lproj for most device languages. Fall back to the name.
+// bundle, which has no .lproj for most device languages.
 static NSString *TweakGroupTitle() {
     NSBundle *tweakBundle = TweakBundle();
     NSString *title = LOC(@"TWEAKS");
@@ -69,14 +49,14 @@ static NSString *TweakGroupTitle() {
 }
 
 /// Both setSectionItems: variants share this: adopt YTPlus' category, which it
-/// never publishes, so its settings end up in the group instead of "Account".
+/// never publishes, so its settings end up in the group.
 static void YGSAdoptYTPlusSection(NSInteger category, NSString *title) {
     if (!title.length) return;
     if ([title rangeOfString:YTPlusSectionTitle options:NSCaseInsensitiveSearch].location == NSNotFound) return;
 
     NSMutableArray <NSNumber *> *tweaks = [%c(YTSettingsGroupData) tweaks];
     if (![tweaks containsObject:@(category)]) {
-        [tweaks insertObject:@(category) atIndex:0];
+        [tweaks addObject:@(category)];
     }
 }
 
@@ -99,31 +79,31 @@ static void YGSAdoptYTPlusSection(NSInteger category, NSString *title) {
     static NSMutableArray <NSNumber *> *tweaks = nil;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
-        // Membership only - the display order is YouTube's (see the note above).
-        // YTPlus is prepended at runtime once its section registers.
         tweaks = [NSMutableArray new];
         [tweaks addObjectsFromArray:@[
-            @(517), // DontEatMyContent
+            @(404), // YTABConfig
             @(FLEXHelperForYT), // FLEXing
-            @(2002), // Gonerino
-            @(1080), // Return YouTube Dislike
+            @(YTIcons), // YTIcons
+            @(YTweaks), // YTweaks
             @(VolumeBoostYT), // VolumeBoostYT
-            @(YouChooseQuality), // YouChooseQuality
+            @(2002), // Gonerino
+            @(YTFlags), // YTFlags
             @(YouMod), // YouMod
+            @(517), // DontEatMyContent
+            @(1080), // Return YouTube Dislike
+            @(YTUHD), // YTUHD
+            @(YouChooseQuality), // YouChooseQuality
             @(200), // YouPiP
             @(YouSlider), // YouSlider
-            @(404), // YTABConfig
-            @(YTFlags), // YTFlags
             @(2168), // YTHoldForSpeed
-            @(YTIcons), // YTIcons
-            @(YTUHD), // YTUHD
             @(1222), // YTVideoOverlay
-            @(YTweaks), // YTweaks
         ]];
     });
     return tweaks;
 }
 
+// The settings screen reads the title property, not titleForSettingGroupType:;
+// hooking only the latter left the group header empty.
 - (NSString *)title {
     if (self.type == TweakGroup)
         return TweakGroupTitle();
@@ -136,9 +116,6 @@ static void YGSAdoptYTPlusSection(NSInteger category, NSString *title) {
     return %orig;
 }
 
-// YTSettingsGroupData declares both the properties above and these per-type
-// methods; the settings screen reads the properties, but both are hooked so the
-// group keeps working if that changes.
 - (NSString *)titleForSettingGroupType:(NSUInteger)type {
     if (type == TweakGroup)
         return TweakGroupTitle();
@@ -166,7 +143,7 @@ static void YGSAdoptYTPlusSection(NSInteger category, NSString *title) {
 }
 
 // The 5-argument variant (no icon) is what e.g. Gonerino registers through; the
-// tweak used to ignore it, so those sections never got a gear icon.
+// tweak used to ignore it, so those sections got no gear icon.
 - (void)setSectionItems:(NSMutableArray *)sectionItems forCategory:(NSInteger)category title:(NSString *)title titleDescription:(NSString *)titleDescription headerHidden:(BOOL)headerHidden {
     YGSAdoptYTPlusSection(category, title);
     %orig;

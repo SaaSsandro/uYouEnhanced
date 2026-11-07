@@ -7,15 +7,22 @@
 > - the group is always titled "Tweaks", even when the settings bundle cannot be
 >   localized on the device (it used to render without a header)
 > - YTPlus (YTLite) publishes no settings category constant, so it is picked up
->   from the section YTPlus registers and pinned to the top of the group
-> - the remaining entries are ordered alphabetically
+>   from the section YTPlus registers — that is what moves it out of "Account"
+>   and into the group
+> - the 5-argument `setSectionItems:…` variant (no icon) is handled too, so
+>   tweaks that register that way get a gear icon
 > - uYou+ was dropped, it is no longer part of the build
+>
+> The order of the rows inside the group is YouTube's own. It is not reachable
+> from this tweak: the category list below only decides membership, the section's
+> items and the global category order are never read by the settings screen, and
+> re-registering the sections crashes it.
 
 A YouTube iOS tweak to allow custom settings (made by tweaks) to be displayed when the grouped settings experiment is active (`YTColdConfig.mainAppCoreClientEnableCairoSettings`), without any extra configurations. This supports YouTube version 19.03.2 and higher (iOS 14.0+).
 
 ## Supported Tweaks
 
-Currently, this tweak will group the following YouTube tweaks into a dedicated group named "Tweaks" when the grouped settings experiment is active (YTPlus first, the rest alphabetically):
+Currently, this tweak will group the following YouTube tweaks into a dedicated group named "Tweaks" when the grouped settings experiment is active:
 
 - YTPlus (YTLite)
 - DontEatMyContent
