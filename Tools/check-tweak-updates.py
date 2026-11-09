@@ -190,10 +190,28 @@ def local_entry(repo, tweak_id, makefile, modules, payloads):
     return entry
 
 
+def support_entry(path, modules):
+    """A header/library submodule the tweaks build against (no control file)."""
+    module = modules.get(path) or {}
+    return {
+        "id": path,
+        "path": path,
+        "kind": "support",
+        "url": module.get("url"),
+        "ref": module.get("branch"),
+        "local_version": None,
+        "upstream_version": None,
+        "local_commit": None,
+        "upstream_commit": None,
+        "outdated": None,
+        "note": None,
+    }
+
+
 def fill_upstream(entry, token, state):
     """Add the upstream version/commit. Runs in a worker, must not raise."""
     try:
-        if entry["kind"] == "submodule":
+        if entry["kind"] in ("submodule", "support"):
             url, branch = entry["url"], entry["ref"]
             if not url:
                 entry["note"] = "no .gitmodules entry"
@@ -206,9 +224,14 @@ def fill_upstream(entry, token, state):
             entry["upstream_commit"] = commit
             entry["upstream_version"] = control_version_text(
                 fetch_text(f"https://raw.githubusercontent.com/{slug}/{branch}/control", token)) if slug else None
-            entry["outdated"] = bool(
-                (entry["local_commit"] and commit and entry["local_commit"] != commit)
-                or (entry["upstream_version"] and entry["local_version"] != entry["upstream_version"]))
+            # A support module has no control file of its own to compare against,
+            # so only the pinned commit decides whether it is behind.
+            if entry["kind"] == "support":
+                entry["outdated"] = bool(entry["local_commit"] and commit and entry["local_commit"] != commit)
+            else:
+                entry["outdated"] = bool(
+                    (entry["local_commit"] and commit and entry["local_commit"] != commit)
+                    or (entry["upstream_version"] and entry["local_version"] != entry["upstream_version"]))
         elif entry["kind"] == "payload":
             slug = github_slug(entry["url"])
             if not slug:
@@ -238,9 +261,17 @@ def collect(repo, only=None, token=None):
     tweaks = [local_entry(repo, id_, makefile, modules, payloads)
               for id_ in registry + sorted(payloads)
               if not only or id_ in only]
+    # Header/library submodules the tweaks include from Tweaks/ - a tweak that
+    # moves upstream usually needs these to move with it.
+    support = [support_entry(p, modules)
+               for p in (makefile.get("SUPPORT_SUBMODULES") or "").split()
+               if p in modules]
+    for entry in support:
+        entry["local_commit"] = gitlink(repo, entry["path"])
+        entry["local_version"] = control_version(repo / entry["path"])
     state = {"offline": False}
-    with ThreadPoolExecutor(max_workers=min(WORKERS, max(len(tweaks), 1))) as pool:
-        list(pool.map(lambda entry: fill_upstream(entry, token, state), tweaks))
+    with ThreadPoolExecutor(max_workers=min(WORKERS, max(len(tweaks) + len(support), 1))) as pool:
+        list(pool.map(lambda entry: fill_upstream(entry, token, state), tweaks + support))
     return {
         "checked_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "offline": state["offline"],
@@ -248,6 +279,8 @@ def collect(repo, only=None, token=None):
         "defaults": (makefile.get("DEFAULT_TWEAKS") or "").split(),
         "tweaks": tweaks,
         "outdated": [t["id"] for t in tweaks if t["outdated"]],
+        "support": support,
+        "outdated_support": [s["path"] for s in support if s["outdated"]],
     }
 
 
@@ -264,12 +297,19 @@ def print_report(report):
         if tweak["ref"]:
             location = f"{location} @ {tweak['ref']}"
         print(f"  {status:9} {tweak['id']:24} {detail:22} {location}")
+    for entry in report.get("support", []):
+        if entry["outdated"]:
+            print(f"  OUTDATED  {entry['id']:24} {'shared module':22} "
+                  f"{entry['local_commit']} -> {entry['upstream_commit']}")
     if report["offline"]:
         print("\nnetwork unreachable - upstream versions could not be checked")
-    elif report["outdated"]:
-        print(f"\n{len(report['outdated'])} outdated: {' '.join(report['outdated'])}")
-    else:
-        print("\nall tweaks up to date")
+        return
+    parts = []
+    if report["outdated"]:
+        parts.append(f"{len(report['outdated'])} outdated: {' '.join(report['outdated'])}")
+    if report.get("outdated_support"):
+        parts.append(f"shared modules behind: {' '.join(report['outdated_support'])}")
+    print("\n" + " · ".join(parts) if parts else "\nall tweaks up to date")
 
 
 def main():

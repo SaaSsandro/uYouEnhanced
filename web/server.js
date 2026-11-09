@@ -472,7 +472,11 @@ async function handleApi(req, res, pathname) {
       workflow,
       message: result.ok
         ? `Workflow ${workflow} dispatched on ${owner}/${repo}@${ref}.`
-        : `GitHub responded ${result.status}: ${result.body.slice(0, 500)}`,
+        : result.status === 404
+          // GitHub only resolves workflows that exist on the default branch; the
+          // ref then decides which revision of the file actually runs.
+          ? `${workflow} is not dispatchable on ${owner}/${repo}: GitHub only knows workflows that exist on the default branch. Add the file there, or merge the branch that carries it. GitHub said: ${result.body.slice(0, 300)}`
+          : `GitHub responded ${result.status}: ${result.body.slice(0, 500)}`,
       runsUrl: `https://github.com/${owner}/${repo}/actions/workflows/${workflow}`,
     });
     return true;

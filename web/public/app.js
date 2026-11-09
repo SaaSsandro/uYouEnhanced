@@ -120,6 +120,8 @@ function renderUpdateSummary() {
   const parts = [updates.outdated.length
     ? `${updates.outdated.length} outdated: ${updates.outdated.join(', ')}`
     : `all ${updates.tweaks.length} tweaks up to date`];
+  const support = updates.outdated_support || [];
+  if (support.length) parts.push(`shared modules behind: ${support.join(', ')}`);
   if (updates.offline) parts.push('check incomplete - some repositories were unreachable');
   if (when) parts.push(`checked ${when}${updates.cached ? ' (cached)' : ''}`);
   updateSummary.textContent = parts.join(' · ');
@@ -267,6 +269,7 @@ updateBtn.addEventListener('click', async () => {
       inputs: {
         only: ids.join(' '),
         include_payload: true,
+        include_support: true,
         verify: true,
         push: true,
         sdk_version: document.getElementById('input-sdk_version')?.value || '26.5',

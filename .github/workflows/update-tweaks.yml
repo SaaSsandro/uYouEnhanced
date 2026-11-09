@@ -5,6 +5,8 @@
 # the payload .deb for Gonerino, nothing for the vendored YouGroupSettings).
 # Submodule tweaks move to the head of the branch .gitmodules names - or of the
 # repository's default branch - and payload versions are bumped in the Makefile.
+# The shared header/library submodules in SUPPORT_SUBMODULES travel with any
+# tweak bump, because tweaks commonly need their newer headers to compile.
 # Nothing is committed unless the bumped tweaks still compile.
 
 name: Update tweaks
@@ -19,6 +21,11 @@ on:
         type: string
       include_payload:
         description: "Also bump payload tweaks (Gonerino)"
+        default: true
+        required: false
+        type: boolean
+      include_support:
+        description: "Move the shared header/library submodules the tweaks build against"
         default: true
         required: false
         type: boolean
@@ -73,6 +80,7 @@ jobs:
         env:
           INPUT_ONLY: ${{ inputs.only }}
           INPUT_INCLUDE_PAYLOAD: ${{ inputs.include_payload }}
+          INPUT_INCLUDE_SUPPORT: ${{ inputs.include_support }}
         run: |
           python3 - <<'PY'
           import json, os, re
@@ -82,17 +90,22 @@ jobs:
           report = json.loads((runner_temp / "updates.json").read_text())
           only = {i for i in re.split(r"[\s,]+", os.environ["INPUT_ONLY"].strip()) if i}
           include_payload = os.environ["INPUT_INCLUDE_PAYLOAD"] == "true"
+          include_support = os.environ["INPUT_INCLUDE_SUPPORT"] == "true"
 
           bumps = [t for t in report["tweaks"]
                    if t["outdated"]
                    and (not only or t["id"] in only)
                    and (include_payload or t["kind"] != "payload")]
+          # A bumped tweak usually needs the shared headers/libraries it builds
+          # against to move with it, so they travel with any tweak bump.
+          if include_support and bumps:
+              bumps += [s for s in report.get("support", []) if s["outdated"]]
           # Verify what we touched on top of the tweaks the project builds anyway.
-          verify_tweaks = sorted(set(report["defaults"]) | {t["id"] for t in bumps})
+          verify_tweaks = sorted(set(report["defaults"]) | {t["id"] for t in bumps if t["kind"] != "support"})
           (runner_temp / "plan.json").write_text(json.dumps({"bumps": bumps, "verify_tweaks": verify_tweaks}, indent=2))
 
           lines = ["| tweak | kind | version | commit |", "| --- | --- | --- | --- |"]
-          for tweak in report["tweaks"]:
+          for tweak in report["tweaks"] + report.get("support", []):
               version = (f"{tweak['local_version']} -> {tweak['upstream_version']}" if tweak["outdated"]
                          else tweak["local_version"] or "-")
               commit = (f"{tweak['local_commit']} -> {tweak['upstream_commit']}" if tweak["local_commit"]
@@ -101,7 +114,8 @@ jobs:
           summary = "\n".join(lines)
           if report["offline"]:
               summary += "\n\nnetwork unreachable - upstream versions could not be checked"
-          summary += f"\n\n{len(bumps)} to update: {' '.join(t['id'] for t in bumps) or '-'}\n"
+          names = [t["id"] if t["kind"] != "support" else t["path"] for t in bumps]
+          summary += f"\n\n{len(bumps)} to update: {' '.join(names) or '-'}\n"
           Path(os.environ["GITHUB_STEP_SUMMARY"]).write_text(summary)
           print(summary)
 
@@ -128,7 +142,7 @@ jobs:
                   raise SystemExit(f"error: git {' '.join(args)} failed:\n{proc.stderr.strip()}")
               return proc.stdout
 
-          submodules = [t["path"] for t in plan["bumps"] if t["kind"] == "submodule"]
+          submodules = [t["path"] for t in plan["bumps"] if t["kind"] in ("submodule", "support")]
           if submodules:
               git("submodule", "update", "--init", "--remote", "--", *submodules)
               print(f"moved to the upstream head: {' '.join(submodules)}")
@@ -157,7 +171,9 @@ jobs:
 
           message = ["chore(tweaks): update outdated tweaks", ""]
           for tweak in plan["bumps"]:
-              if tweak["kind"] == "submodule":
+              if tweak["kind"] == "support":
+                  message.append(f"{tweak['path']} {tweak['local_commit']} -> {tweak['upstream_commit']}")
+              elif tweak["kind"] == "submodule":
                   message.append(f"{tweak['id']} {tweak['local_version']} -> {tweak['upstream_version']}"
                                  f" ({tweak['local_commit']} -> {tweak['upstream_commit']})")
               else:

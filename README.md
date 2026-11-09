@@ -92,10 +92,18 @@ way as the build workflow) turns that report into a commit: submodule tweaks mov
 to the head of the branch `.gitmodules` names, payload versions are bumped in the
 Makefile, the bumped tweaks are compiled, and only then is the result pushed.
 
+Tweaks that move upstream usually drag their build dependencies along, so
+`SUPPORT_SUBMODULES` in the Makefile lists the shared header sets and libraries
+(`Tweaks/YouTubeHeader`, `Tweaks/PSHeader`, `Tweaks/libundirect`,
+`Tweaks/RemoteLog`) that travel with any tweak bump — YouSlider 1.4.1 only
+compiles against the newer YouTubeHeader. Alderis and protobuf stay pinned by
+hand, and `Alderis.framework` is built with patched xcodebuild flags.
+
 | Input | Default | Meaning |
 |---|---|---|
 | `only` | – | Tweaks to update; empty means every outdated tweak. |
 | `include_payload` | `true` | Also bump payload tweaks (Gonerino). |
+| `include_support` | `true` | Move the shared header/library submodules too. |
 | `verify` | `true` | Compile the bumped tweaks before pushing. |
 | `push` | `true` | Push the result; off only reports what would change. |
 | `sdk_version` | `26.5` | iOS SDK used for the verification compile. |

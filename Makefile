@@ -101,6 +101,14 @@ IAmYouTube_DYLIB = IAmYouTube
 NoYTPremium_SUBPROJECT = Tweaks/NoYTPremium
 NoYTPremium_DYLIB = NoYTPremium
 
+# Build dependencies of the tweaks: header sets and link libraries the submodules
+# include from Tweaks/. They are not selectable tweaks, but a tweak that moves
+# upstream usually has to move them with it - YouSlider 1.4.1 only compiles
+# against the newer YouTubeHeader. Alderis and protobuf are deliberately absent:
+# the build patches Alderis' xcodebuild flags and protobuf is pinned to the
+# snapshot iSponsorBlock expects.
+SUPPORT_SUBMODULES = Tweaks/YouTubeHeader Tweaks/PSHeader Tweaks/libundirect Tweaks/RemoteLog
+
 # PAYLOAD_TWEAKS ship as prebuilt .deb files that the build downloads, unpacks
 # and injects. They have no subproject to compile, but they are selectable
 # through ENABLED_TWEAKS like any other tweak.
