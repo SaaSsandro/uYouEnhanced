@@ -96,13 +96,23 @@ function parseWorkflowInputs(yaml) {
 function parseMakefileTweaks(text) {
   const joined = text.replace(/\\\r?\n[ \t]*/g, ' ');
   const lines = joined.split(/\r?\n/);
+  // The first plain assignment wins, `+=` lines extend it - that is how the tweaks
+  // added through the app are layered on from Tweaks/custom.mk.
   const readVar = (name) => {
-    const re = new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*[:?]?=\\s*(.*)$`);
+    const base = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const plain = new RegExp(`^${base}\\s*[:?]?=\\s*(.*)$`);
+    const append = new RegExp(`^${base}\\s*\\+=\\s*(.*)$`);
+    let value = null;
     for (const line of lines) {
-      const m = re.exec(line);
-      if (m) return m[1].trim();
+      const added = append.exec(line);
+      if (added) {
+        value = `${value ?? ''} ${added[1].trim()}`.trim();
+        continue;
+      }
+      const m = plain.exec(line);
+      if (m && value === null) value = m[1].trim();
     }
-    return null;
+    return value;
   };
   const list = (v) => (v || '').split(/\s+/).filter(Boolean);
   const registry = list(readVar('TWEAK_REGISTRY'));
@@ -180,15 +190,17 @@ async function findTheos() {
 // ---------------------------------------------------------------------------
 
 async function buildConfig() {
-  const [workflowYaml, makefile, repo, theos, ...prereqs] = await Promise.all([
+  const [workflowYaml, makefileText, customTweaks, repo, theos, ...prereqs] = await Promise.all([
     readFile(path.join(REPO_ROOT, WORKFLOW_REL), 'utf8'),
     readFile(path.join(REPO_ROOT, MAKEFILE_REL), 'utf8'),
+    readFile(path.join(REPO_ROOT, 'Tweaks', 'custom.mk'), 'utf8').catch(() => ''),
     readRepoInfo(),
     findTheos(),
     ...PREREQ_BINS.map(which),
   ]);
   const inputs = parseWorkflowInputs(workflowYaml);
-  const { tweaks } = parseMakefileTweaks(makefile);
+  // Tweaks added through the app live in the include file the Makefile pulls in.
+  const { tweaks } = parseMakefileTweaks(`${makefileText}\n${customTweaks}`);
   const enriched = await Promise.all(
     tweaks.map(async (t) => {
       const control = await readControl(t.id);

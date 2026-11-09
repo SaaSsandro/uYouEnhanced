@@ -114,6 +114,32 @@ tweaks* dispatches the workflow, *Sync repository* pulls the result together wit
 the submodule commits (`git pull` + `git submodule update --init --recursive`) so
 the next build uses the new versions. Syncing refuses to run on a dirty checkout.
 
+## Custom tweaks
+
+Tweaks can be added from a GitHub link instead of editing the Makefile by hand.
+`add-tweak.yml` (dispatchable from the app's Tweaks page) checks out the
+repository, adds it as a submodule under `Tweaks/<id>`, appends its registry entry
+and dylib to `Tweaks/custom.mk` — the include the Makefile pulls in — and compiles
+it together with the project's default set. Only when that gate passes is the
+result pushed, so a broken link, a missing header or a wrong dylib name fails in
+the workflow instead of in a build.
+
+| Input | Default | Meaning |
+|---|---|---|
+| `repo` | – | Repository URL of the tweak (github.com). |
+| `id` | repository name | Tweak id and submodule folder. |
+| `branch` | repository default | Branch pinned in `.gitmodules`. |
+| `subproject` | repository root | Directory carrying the Makefile, e.g. `libflex`. |
+| `dylib` | `TWEAK_NAME`/`LIBRARY_NAME` | Dylib to inject. |
+| `verify` | `true` | Compile the tweak before pushing. |
+| `push` | `true` | Commit and push the new tweak. |
+
+`CUSTOM_TWEAKS` in the Makefile records what was added this way;
+`Tools/check-tweak-updates.py`, the web UI and the app all read it, so custom
+tweaks are version-checked and updated like the curated ones, and the app's tweak
+picker shows them in a **Custom** section that only appears once the first one
+exists.
+
 ## The iOS app
 
 `YouTubeBuilder` (a separate Xcode project) is a thin client for the workflow: it

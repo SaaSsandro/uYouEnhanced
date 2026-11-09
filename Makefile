@@ -114,6 +114,13 @@ SUPPORT_SUBMODULES = Tweaks/YouTubeHeader Tweaks/PSHeader Tweaks/libundirect Twe
 # through ENABLED_TWEAKS like any other tweak.
 PAYLOAD_TWEAKS = YTPlus Gonerino
 
+# CUSTOM_TWEAKS are the tweaks added by hand through the app. add-tweak.yml only
+# ever appends to Tweaks/custom.mk (one block per tweak: the registry entry, the
+# subproject and the dylib) and that file is included here, before the checks
+# below, so a custom tweak behaves exactly like one wired up by hand.
+CUSTOM_TWEAKS =
+include Tweaks/custom.mk
+
 UNKNOWN_TWEAKS = $(filter-out $(TWEAK_REGISTRY) $(PAYLOAD_TWEAKS),$(ENABLED_TWEAKS))
 ifneq ($(UNKNOWN_TWEAKS),)
 $(error Unknown tweak(s) in ENABLED_TWEAKS: $(UNKNOWN_TWEAKS). Valid ids: $(TWEAK_REGISTRY) $(PAYLOAD_TWEAKS))

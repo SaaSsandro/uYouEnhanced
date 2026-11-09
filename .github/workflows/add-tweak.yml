@@ -1,0 +1,259 @@
+# Adds a tweak to the repository from a GitHub link.
+#
+# The tweak is wired up the way the hand-maintained ones are: a git submodule
+# under Tweaks/<id> plus its registry entry and dylib appended to
+# Tweaks/custom.mk, which the Makefile includes. Nothing is pushed unless the
+# tweak compiles together with the project's default set, so a wrong link, a
+# missing header or a bad dylib name fails here instead of in a build. The web UI
+# and the iOS app both surface the run.
+
+name: Add tweak
+
+on:
+  workflow_dispatch:
+    inputs:
+      repo:
+        description: "GitHub repository URL of the tweak"
+        required: true
+        type: string
+      id:
+        description: "Tweak id and submodule folder (default: the repository name)"
+        default: ""
+        required: false
+        type: string
+      branch:
+        description: "Branch to pin (default: the repository's default branch)"
+        default: ""
+        required: false
+        type: string
+      subproject:
+        description: "Subproject inside the repository, e.g. libflex (default: repository root)"
+        default: ""
+        required: false
+        type: string
+      dylib:
+        description: "Dylib to inject (default: the subproject's TWEAK_NAME/library name)"
+        default: ""
+        required: false
+        type: string
+      verify:
+        description: "Compile the new tweak before pushing"
+        default: true
+        required: false
+        type: boolean
+      push:
+        description: "Commit and push the new tweak (off = only wire it up and verify)"
+        default: true
+        required: false
+        type: boolean
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  add:
+    name: Add tweak
+    # macos-latest has no runner in this repository; the build runs on xcode-27.
+    runs-on: xcode-27
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          path: repo
+          ref: ${{ github.ref }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Read the current registry
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd repo
+          python3 Tools/check-tweak-updates.py --json > "$RUNNER_TEMP/current.json"
+
+      - name: Wire up the submodule
+        id: add
+        env:
+          INPUT_REPO: ${{ inputs.repo }}
+          INPUT_ID: ${{ inputs.id }}
+          INPUT_BRANCH: ${{ inputs.branch }}
+          INPUT_SUBPROJECT: ${{ inputs.subproject }}
+          INPUT_DYLIB: ${{ inputs.dylib }}
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib, re, subprocess
+
+          repo_dir = pathlib.Path("repo")
+          runner_temp = pathlib.Path(os.environ["RUNNER_TEMP"])
+
+          def git(*args, check=True):
+              proc = subprocess.run(["git", *args], cwd=repo_dir, capture_output=True, text=True)
+              if check and proc.returncode != 0:
+                  raise SystemExit(f"error: git {' '.join(args)} failed:\n{proc.stdout.strip()}\n{proc.stderr.strip()}")
+              return proc.stdout
+
+          url = os.environ["INPUT_REPO"].strip().rstrip("/")
+          match = re.match(r"^(?:https?://|git@)github\.com[:/]([^/]+)/([^/]+?)(?:\.git)?$", url)
+          if not match:
+              raise SystemExit(f"error: '{url}' is not a github.com repository URL")
+          owner, name = match.group(1), match.group(2)
+          url = f"https://github.com/{owner}/{name}.git"
+
+          tweak_id = os.environ["INPUT_ID"].strip() or name
+          if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", tweak_id):
+              raise SystemExit(f"error: '{tweak_id}' is not a usable tweak id")
+
+          branch = os.environ["INPUT_BRANCH"].strip()
+          subproject = os.environ["INPUT_SUBPROJECT"].strip().strip("/")
+
+          # Refuse duplicates early - a second submodule for the same id, or an id
+          # that is already wired up, would only fail in confusing ways later.
+          current = json.loads((runner_temp / "current.json").read_text())
+          known = {t["id"] for t in current["tweaks"]} | set(current.get("registry", []))
+          if tweak_id in known:
+              raise SystemExit(f"error: '{tweak_id}' is already part of the tweak list")
+          existing_urls = git("config", "-f", ".gitmodules", "--get-regexp", r"^submodule\..*\.url$")
+          if url in existing_urls:
+              raise SystemExit(f"error: {url} is already a submodule of this repository")
+
+          args = ["submodule", "add"]
+          if branch:
+              args += ["-b", branch]
+          args += [url, f"Tweaks/{tweak_id}"]
+          git(*args)
+          print(f"submodule Tweaks/{tweak_id} -> {url}" + (f" (branch {branch})" if branch else ""))
+
+          sub_dir = f"Tweaks/{tweak_id}" + (f"/{subproject}" if subproject else "")
+          if not (repo_dir / sub_dir).is_dir():
+              raise SystemExit(f"error: {sub_dir} does not exist in the repository")
+
+          # The injected dylib: explicit, or the subproject's own name.
+          dylib = os.environ["INPUT_DYLIB"].strip()
+          if not dylib:
+              makefile = repo_dir / sub_dir / "Makefile"
+              text = makefile.read_text(errors="replace") if makefile.is_file() else ""
+              for variable in ("TWEAK_NAME", "LIBRARY_NAME"):
+                  found = re.search(rf"(?m)^{variable}\s*[:?]?=\s*([A-Za-z0-9._+-]+)", text)
+                  if found:
+                      dylib = found.group(1)
+                      break
+              if not dylib:
+                  dylib = tweak_id
+                  print(f"note: no TWEAK_NAME or LIBRARY_NAME in {sub_dir}/Makefile, assuming '{dylib}'")
+
+          custom = repo_dir / "Tweaks" / "custom.mk"
+          with custom.open("r", newline="") as handle:
+              existing = handle.read()
+          newline = "\r\n" if "\r\n" in existing else "\n"
+          block = [
+              "",
+              f"# added by add-tweak.yml: {owner}/{name}" + (f" @ {branch}" if branch else ""),
+              f"TWEAK_REGISTRY += {tweak_id}",
+              f"CUSTOM_TWEAKS += {tweak_id}",
+              f"{tweak_id}_SUBPROJECT = {sub_dir}",
+              f"{tweak_id}_DYLIB = {dylib}",
+          ]
+          with custom.open("a", newline="") as handle:
+              handle.write(newline.join(block) + newline)
+          print(f"appended {tweak_id} to Tweaks/custom.mk (dylib {dylib}, subproject {sub_dir})")
+
+          verify_tweaks = sorted(set(current.get("defaults", [])) | {tweak_id})
+          message = [
+              f"feat(tweaks): add {tweak_id}", "",
+              f"{owner}/{name}" + (f" @ {branch}" if branch else ""),
+              f"subproject {sub_dir}, dylib {dylib}",
+          ]
+          (runner_temp / "commit-message.txt").write_text("\n".join(message) + "\n")
+
+          diff = git("--no-pager", "diff", "--stat", "HEAD") + git("--no-pager", "diff", "HEAD", "--", ".gitmodules", "Tweaks/custom.mk")
+          print(diff)
+          with pathlib.Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as handle:
+              handle.write(f"\n\n### {tweak_id}\n\n```\n{diff}\n```\n")
+              handle.write(f"\ncompiling: {' '.join(verify_tweaks)}\n")
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+              out.write(f"id={tweak_id}\n")
+              out.write(f"dylib={dylib}\n")
+              out.write(f"verify_tweaks={' '.join(verify_tweaks)}\n")
+          PY
+
+      - name: Install Dependencies
+        if: ${{ inputs.verify }}
+        run: brew install ldid dpkg make curl
+
+      - name: Set PATH
+        if: ${{ inputs.verify }}
+        run: echo "$(brew --prefix make)/libexec/gnubin" >> $GITHUB_PATH
+
+      - name: Setup Theos
+        if: ${{ inputs.verify }}
+        uses: actions/checkout@v7
+        with:
+          repository: theos/theos
+          ref: master
+          path: theos
+          submodules: recursive
+
+      - name: SDK Caching
+        if: ${{ inputs.verify }}
+        id: SDK
+        uses: actions/cache@v6
+        with:
+          path: theos/sdks/
+          key: iOS-xybp888-27.2-SDK
+
+      - name: Download iOS SDK
+        if: ${{ inputs.verify && steps.SDK.outputs.cache-hit != 'true' }}
+        run: |
+          git clone --quiet -n --depth=1 --filter=tree:0 https://github.com/xybp888/iOS-SDKs.git sdks
+          cd sdks
+          git sparse-checkout set --no-cone iPhoneOS27.2.sdk
+          git checkout --quiet
+          if [ ! -d "iPhoneOS27.2.sdk" ]; then
+            echo "error: iPhoneOS27.2.sdk does not exist in xybp888/iOS-SDKs" >&2
+            exit 1
+          fi
+          mv *.sdk $THEOS/sdks
+        env:
+          THEOS: ${{ github.workspace }}/theos
+
+      # The gate: the new tweak has to compile next to the project's defaults, and
+      # the dylib it names has to actually come out of the build.
+      - name: Compile the new tweak
+        if: ${{ inputs.verify }}
+        env:
+          THEOS: ${{ github.workspace }}/theos
+        run: |
+          cd repo
+          echo "compiling: ${{ steps.add.outputs.verify_tweaks }}"
+          make all THEOS_PACKAGE_SCHEME=rootless \
+            SDK_VERSION="27.2" \
+            ENABLED_TWEAKS="${{ steps.add.outputs.verify_tweaks }}"
+          dylib="${{ steps.add.outputs.dylib }}"
+          if ! find .theos/obj -maxdepth 2 -name "${dylib}.dylib" -print -quit | grep -q .; then
+            echo "error: the build produced no ${dylib}.dylib - pass the right 'dylib' input" >&2
+            exit 1
+          fi
+          echo "${dylib}.dylib built." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Commit and push
+        if: ${{ inputs.push }}
+        working-directory: repo
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "Tweaks/${{ steps.add.outputs.id }}" .gitmodules Tweaks/custom.mk
+          if git diff --cached --quiet; then
+            echo "error: nothing was staged" >&2
+            exit 1
+          fi
+          git commit -F "$RUNNER_TEMP/commit-message.txt"
+          # The branch can move while the compilation runs.
+          git fetch origin "${{ github.ref_name }}"
+          git rebase "origin/${{ github.ref_name }}"
+          git push origin "HEAD:${{ github.ref_name }}"
+          echo "pushed $(git rev-parse --short HEAD) to ${{ github.ref_name }}" >> "$GITHUB_STEP_SUMMARY"

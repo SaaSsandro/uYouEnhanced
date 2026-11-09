@@ -46,13 +46,22 @@ def run(cmd, cwd=None, timeout=GIT_TIMEOUT):
 # ---------------------------------------------------------------------------
 
 def parse_makefile(text):
-    """Return the variables the Makefile sets, first assignment winning."""
+    """Return the variables the Makefile sets.
+
+    The first plain assignment wins, `+=` lines extend it - that is how the tweaks
+    added through the app are layered on from Tweaks/custom.mk.
+    """
     joined = re.sub(r"\\\r?\n[ \t]*", " ", text)
     variables = {}
     for line in joined.splitlines():
-        match = re.match(r"^([A-Za-z0-9_\-]+)\s*[:?]?=\s*(.*)$", line)
-        if match:
-            variables.setdefault(match.group(1), match.group(2).strip())
+        match = re.match(r"^([A-Za-z0-9_\-]+)\s*(\+?[:?]?=)\s*(.*)$", line)
+        if not match:
+            continue
+        name, operator, value = match.group(1), match.group(2), match.group(3).strip()
+        if operator == "+=" and name in variables:
+            variables[name] = f"{variables[name]} {value}".strip()
+        elif name not in variables:
+            variables[name] = value
     return variables
 
 
@@ -254,7 +263,13 @@ def fill_upstream(entry, token, state):
 
 
 def collect(repo, only=None, token=None):
-    makefile = parse_makefile((repo / "Makefile").read_text(errors="replace"))
+    # Tweaks added through the app live in Tweaks/custom.mk, which the Makefile
+    # includes - read both so the report covers them.
+    text = (repo / "Makefile").read_text(errors="replace")
+    custom_tweaks = repo / "Tweaks/custom.mk"
+    if custom_tweaks.is_file():
+        text += "\n" + custom_tweaks.read_text(errors="replace")
+    makefile = parse_makefile(text)
     registry = (makefile.get("TWEAK_REGISTRY") or "").split()
     payloads = set((makefile.get("PAYLOAD_TWEAKS") or "").split())
     modules = submodule_urls(repo)
@@ -277,6 +292,7 @@ def collect(repo, only=None, token=None):
         "offline": state["offline"],
         "registry": registry,
         "defaults": (makefile.get("DEFAULT_TWEAKS") or "").split(),
+        "custom": (makefile.get("CUSTOM_TWEAKS") or "").split(),
         "tweaks": tweaks,
         "outdated": [t["id"] for t in tweaks if t["outdated"]],
         "support": support,
