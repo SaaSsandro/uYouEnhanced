@@ -41,7 +41,7 @@ on:
         type: boolean
       sdk_version:
         description: "iOS SDK version used to verify the compile"
-        default: "26.5"
+        default: "27.2"
         required: false
         type: string
 
@@ -52,8 +52,10 @@ concurrency:
 jobs:
   update:
     name: Update tweaks
-    # Same rule as the build workflow: iOS 27 SDK stubs need the Xcode 27 image.
-    runs-on: ${{ fromJSON(inputs.sdk_version) >= 27 && 'xcode-27' || 'macos-latest' }}
+    # macos-latest has no runner in this repository - a job that asks for it sits
+    # in the queue until GitHub cancels it - so the update runs on the image the
+    # build workflow uses.
+    runs-on: xcode-27
     permissions:
       contents: write
 

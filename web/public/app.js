@@ -269,7 +269,6 @@ updateBtn.addEventListener('click', async () => {
         include_support: true,
         verify: true,
         push: true,
-        sdk_version: document.getElementById('input-sdk_version')?.value || '26.5',
       },
     });
     setOutput(`${data.message}\n\nWatch progress: ${data.runsUrl}\n\n` +
