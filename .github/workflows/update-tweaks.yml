@@ -249,5 +249,9 @@ jobs:
           # -u stages exactly the gitlinks and the Makefile the step above touched.
           git add -u
           git commit -F "$RUNNER_TEMP/commit-message.txt"
+          # The branch can move while the verification compiles: rebase onto the
+          # current tip so a commit that landed meanwhile cannot reject the update.
+          git fetch origin "${{ github.ref_name }}"
+          git rebase "origin/${{ github.ref_name }}"
           git push origin "HEAD:${{ github.ref_name }}"
           echo "pushed $(git rev-parse --short HEAD) to ${{ github.ref_name }}" >> "$GITHUB_STEP_SUMMARY"

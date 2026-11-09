@@ -7,8 +7,10 @@ on:
   workflow_dispatch:
     inputs:
       sdk_version:
-        description: "iOS SDK Version"
-        default: "26.5"
+        # 27.x selects the xcode-27 image below; jobs that ask for macos-latest
+        # never get a runner here and are cancelled by GitHub after ~15 minutes.
+        description: "iOS SDK Version (27.x runs on the xcode-27 image)"
+        default: "27.2"
         required: true
         type: string
       ytplus_version:
