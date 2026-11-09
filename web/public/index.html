@@ -35,6 +35,20 @@
     </section>
 
     <section>
+      <h2>Tweak versions</h2>
+      <p class="hint">
+        Checked against each tweak's upstream repository when the page loads: the pinned commit and the
+        <code>control</code> version. Outdated tweaks are badged with the version they could move to.
+      </p>
+      <div class="toolbar">
+        <button type="button" id="check-updates">Check for updates</button>
+        <button type="button" id="update-tweaks">Update outdated tweaks</button>
+        <button type="button" id="sync">Sync repository</button>
+      </div>
+      <span id="update-summary" class="hint">Checking upstream versions…</span>
+    </section>
+
+    <section>
       <h2>GitHub target</h2>
       <div id="target" class="grid"></div>
       <p class="hint">The token is only forwarded to api.github.com for this request; it is never stored or logged.</p>

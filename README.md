@@ -74,6 +74,38 @@ emit an equivalent local build script:
 cd web && npm start   # http://localhost:8787
 ```
 
+## Tweak updates
+
+`Tools/check-tweak-updates.py` compares every tweak with its upstream repository:
+the pinned commit and the `control` version for submodule tweaks, the latest
+GitHub release for payload tweaks such as Gonerino, and nothing for tweaks that
+live in this repository (`YouGroupSettings`). No API token is needed — `control`
+comes from `raw.githubusercontent.com` and the refs from `git ls-remote`.
+
+```sh
+python3 Tools/check-tweak-updates.py           # table
+python3 Tools/check-tweak-updates.py --json    # for tooling
+```
+
+`update-tweaks.yml` (dispatchable from the web UI, and from the iOS app the same
+way as the build workflow) turns that report into a commit: submodule tweaks move
+to the head of the branch `.gitmodules` names, payload versions are bumped in the
+Makefile, the bumped tweaks are compiled, and only then is the result pushed.
+
+| Input | Default | Meaning |
+|---|---|---|
+| `only` | – | Tweaks to update; empty means every outdated tweak. |
+| `include_payload` | `true` | Also bump payload tweaks (Gonerino). |
+| `verify` | `true` | Compile the bumped tweaks before pushing. |
+| `push` | `true` | Push the result; off only reports what would change. |
+| `sdk_version` | `26.5` | iOS SDK used for the verification compile. |
+
+The web UI checks upstream versions when it loads, badges outdated tweaks with the
+version they could move to, and offers the matching actions: *Update outdated
+tweaks* dispatches the workflow, *Sync repository* pulls the result together with
+the submodule commits (`git pull` + `git submodule update --init --recursive`) so
+the next build uses the new versions. Syncing refuses to run on a dirty checkout.
+
 ## The iOS app
 
 `YouTubeBuilder` (a separate Xcode project) is a thin client for the workflow: it

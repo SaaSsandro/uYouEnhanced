@@ -1,0 +1,235 @@
+# Bumps the tweaks that lag behind their upstream repositories.
+#
+# Tools/check-tweak-updates.py compares every tweak the Makefile knows about
+# with its upstream (pinned commit + control version for submodules, release of
+# the payload .deb for Gonerino, nothing for the vendored YouGroupSettings).
+# Submodule tweaks move to the head of the branch .gitmodules names - or of the
+# repository's default branch - and payload versions are bumped in the Makefile.
+# Nothing is committed unless the bumped tweaks still compile.
+
+name: Update tweaks
+
+on:
+  workflow_dispatch:
+    inputs:
+      only:
+        description: "Tweaks to update (space/comma separated; empty = every outdated tweak)"
+        default: ""
+        required: false
+        type: string
+      include_payload:
+        description: "Also bump payload tweaks (Gonerino)"
+        default: true
+        required: false
+        type: boolean
+      verify:
+        description: "Compile the bumped tweaks before pushing"
+        default: true
+        required: false
+        type: boolean
+      push:
+        description: "Commit and push the bumps (off = only show what would change)"
+        default: true
+        required: false
+        type: boolean
+      sdk_version:
+        description: "iOS SDK version used to verify the compile"
+        default: "26.5"
+        required: false
+        type: string
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  update:
+    name: Update tweaks
+    # Same rule as the build workflow: iOS 27 SDK stubs need the Xcode 27 image.
+    runs-on: ${{ fromJSON(inputs.sdk_version) >= 27 && 'xcode-27' || 'macos-latest' }}
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          path: repo
+          ref: ${{ github.ref }}
+          # The submodule bumps are regular commits on top of the current tip.
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Check tweak versions
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd repo
+          python3 Tools/check-tweak-updates.py
+          python3 Tools/check-tweak-updates.py --json > "$RUNNER_TEMP/updates.json"
+
+      - name: Plan the update
+        id: plan
+        env:
+          INPUT_ONLY: ${{ inputs.only }}
+          INPUT_INCLUDE_PAYLOAD: ${{ inputs.include_payload }}
+        run: |
+          python3 - <<'PY'
+          import json, os, re
+          from pathlib import Path
+
+          runner_temp = Path(os.environ["RUNNER_TEMP"])
+          report = json.loads((runner_temp / "updates.json").read_text())
+          only = {i for i in re.split(r"[\s,]+", os.environ["INPUT_ONLY"].strip()) if i}
+          include_payload = os.environ["INPUT_INCLUDE_PAYLOAD"] == "true"
+
+          bumps = [t for t in report["tweaks"]
+                   if t["outdated"]
+                   and (not only or t["id"] in only)
+                   and (include_payload or t["kind"] != "payload")]
+          # Verify what we touched on top of the tweaks the project builds anyway.
+          verify_tweaks = sorted(set(report["defaults"]) | {t["id"] for t in bumps})
+          (runner_temp / "plan.json").write_text(json.dumps({"bumps": bumps, "verify_tweaks": verify_tweaks}, indent=2))
+
+          lines = ["| tweak | kind | version | commit |", "| --- | --- | --- | --- |"]
+          for tweak in report["tweaks"]:
+              version = (f"{tweak['local_version']} -> {tweak['upstream_version']}" if tweak["outdated"]
+                         else tweak["local_version"] or "-")
+              commit = (f"{tweak['local_commit']} -> {tweak['upstream_commit']}" if tweak["local_commit"]
+                        else tweak["note"] or "-")
+              lines.append(f"| {tweak['id']} | {tweak['kind']} | {version} | {commit} |")
+          summary = "\n".join(lines)
+          if report["offline"]:
+              summary += "\n\nnetwork unreachable - upstream versions could not be checked"
+          summary += f"\n\n{len(bumps)} to update: {' '.join(t['id'] for t in bumps) or '-'}\n"
+          Path(os.environ["GITHUB_STEP_SUMMARY"]).write_text(summary)
+          print(summary)
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+              out.write(f"changed={'true' if bumps else 'false'}\n")
+              out.write(f"count={len(bumps)}\n")
+          PY
+
+      - name: Apply the update
+        id: apply
+        if: ${{ steps.plan.outputs.changed == 'true' }}
+        run: |
+          python3 - <<'PY'
+          import json, os, re, subprocess
+          from pathlib import Path
+
+          repo = Path("repo")
+          runner_temp = Path(os.environ["RUNNER_TEMP"])
+          plan = json.loads((runner_temp / "plan.json").read_text())
+
+          def git(*args):
+              proc = subprocess.run(["git", *args], cwd=repo, capture_output=True, text=True)
+              if proc.returncode != 0:
+                  raise SystemExit(f"error: git {' '.join(args)} failed:\n{proc.stderr.strip()}")
+              return proc.stdout
+
+          submodules = [t["path"] for t in plan["bumps"] if t["kind"] == "submodule"]
+          if submodules:
+              git("submodule", "update", "--init", "--remote", "--", *submodules)
+              print(f"moved to the upstream head: {' '.join(submodules)}")
+
+          for tweak in plan["bumps"]:
+              if tweak["kind"] != "payload":
+                  continue
+              variable = f"{tweak['id'].upper()}_VERSION"
+              makefile = repo / "Makefile"
+              # newline="" keeps the file's CRLF endings, so the bump stays a one-line diff.
+              with makefile.open("r", newline="") as handle:
+                  text = handle.read()
+              text, count = re.subn(rf"(?m)^({variable}\s*=\s*)\S+",
+                                    lambda match: match.group(1) + tweak["upstream_version"],
+                                    text)
+              if count != 1:
+                  raise SystemExit(f"error: expected exactly one {variable} in the Makefile, found {count}")
+              with makefile.open("w", newline="") as handle:
+                  handle.write(text)
+              print(f"bumped {variable} to {tweak['upstream_version']}")
+
+          diff = git("--no-pager", "diff", "--submodule=short")
+          print(diff or "(nothing changed)")
+          with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as handle:
+              handle.write(f"\n```diff\n{diff}\n```\n")
+
+          message = ["chore(tweaks): update outdated tweaks", ""]
+          for tweak in plan["bumps"]:
+              if tweak["kind"] == "submodule":
+                  message.append(f"{tweak['id']} {tweak['local_version']} -> {tweak['upstream_version']}"
+                                 f" ({tweak['local_commit']} -> {tweak['upstream_commit']})")
+              else:
+                  message.append(f"{tweak['id']} {tweak['local_version']} -> {tweak['upstream_version']}")
+          (runner_temp / "commit-message.txt").write_text("\n".join(message) + "\n")
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+              out.write("applied=true\n")
+              out.write(f"verify_tweaks={' '.join(plan['verify_tweaks'])}\n")
+          PY
+
+      - name: Install Dependencies
+        if: ${{ inputs.verify }}
+        run: brew install ldid dpkg make curl
+
+      - name: Set PATH
+        if: ${{ inputs.verify }}
+        run: echo "$(brew --prefix make)/libexec/gnubin" >> $GITHUB_PATH
+
+      - name: Setup Theos
+        if: ${{ inputs.verify }}
+        uses: actions/checkout@v7
+        with:
+          repository: theos/theos
+          ref: master
+          path: theos
+          submodules: recursive
+
+      - name: SDK Caching
+        if: ${{ inputs.verify }}
+        id: SDK
+        uses: actions/cache@v6
+        with:
+          path: theos/sdks/
+          # Same source and key as the build workflow, so the SDK download is shared.
+          key: iOS-xybp888-${{ inputs.sdk_version }}-SDK
+
+      - name: Download iOS SDK
+        if: ${{ inputs.verify && steps.SDK.outputs.cache-hit != 'true' }}
+        run: |
+          git clone --quiet -n --depth=1 --filter=tree:0 https://github.com/xybp888/iOS-SDKs.git sdks
+          cd sdks
+          git sparse-checkout set --no-cone iPhoneOS${{ inputs.sdk_version }}.sdk
+          git checkout --quiet
+          if [ ! -d "iPhoneOS${{ inputs.sdk_version }}.sdk" ]; then
+            echo "error: iPhoneOS${{ inputs.sdk_version }}.sdk does not exist in xybp888/iOS-SDKs" >&2
+            exit 1
+          fi
+          mv *.sdk $THEOS/sdks
+        env:
+          THEOS: ${{ github.workspace }}/theos
+
+      # The gate: a bump that does not compile never reaches the branch.
+      - name: Compile the bumped tweaks
+        if: ${{ inputs.verify && steps.apply.outputs.applied == 'true' }}
+        env:
+          THEOS: ${{ github.workspace }}/theos
+        run: |
+          cd repo
+          echo "compiling: ${{ steps.apply.outputs.verify_tweaks }}"
+          make all THEOS_PACKAGE_SCHEME=rootless \
+            SDK_VERSION="${{ inputs.sdk_version }}" \
+            ENABLED_TWEAKS="${{ steps.apply.outputs.verify_tweaks }}"
+
+      - name: Commit and push
+        if: ${{ inputs.push && steps.apply.outputs.applied == 'true' }}
+        working-directory: repo
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # -u stages exactly the gitlinks and the Makefile the step above touched.
+          git add -u
+          git commit -F "$RUNNER_TEMP/commit-message.txt"
+          git push origin "HEAD:${{ github.ref_name }}"
+          echo "pushed $(git rev-parse --short HEAD) to ${{ github.ref_name }}" >> "$GITHUB_STEP_SUMMARY"

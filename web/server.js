@@ -23,8 +23,15 @@ const HOST = process.env.HOST || '127.0.0.1';
 
 const WORKFLOW_REL = '.github/workflows/buildapp.yml';
 const WORKFLOW_NAME = 'buildapp.yml';
+const UPDATE_WORKFLOW_NAME = 'update-tweaks.yml';
+const WORKFLOWS = {
+  [WORKFLOW_NAME]: WORKFLOW_REL,
+  [UPDATE_WORKFLOW_NAME]: '.github/workflows/update-tweaks.yml',
+};
+const CHECKER_REL = 'Tools/check-tweak-updates.py';
+const UPDATE_CACHE_MS = 6 * 60 * 60 * 1000;
 const MAKEFILE_REL = 'Makefile';
-const PREREQ_BINS = ['make', 'git', 'curl', 'unzip', 'ldid', 'dpkg', 'cyan', 'xcodebuild'];
+const PREREQ_BINS = ['make', 'git', 'curl', 'unzip', 'ldid', 'dpkg', 'cyan', 'xcodebuild', 'python3'];
 const TWEAK_INPUT = 'enabled_tweaks';
 const MAX_BODY = 1 << 20;
 const LOG_FILE = process.env.LOG_FILE || path.join(__dirname, 'server.log');
@@ -98,15 +105,19 @@ function parseMakefileTweaks(text) {
     return null;
   };
   const list = (v) => (v || '').split(/\s+/).filter(Boolean);
-  const ids = list(readVar('TWEAK_REGISTRY'));
+  const registry = list(readVar('TWEAK_REGISTRY'));
+  const payload = list(readVar('PAYLOAD_TWEAKS'));
   const defaults = new Set(list(readVar('DEFAULT_TWEAKS')));
-  const tweaks = ids.map((id) => ({
+  const tweaks = [...registry, ...payload].map((id) => ({
     id,
     subproject: readVar(`${id}_SUBPROJECT`),
     dylib: readVar(`${id}_DYLIB`),
+    // Payload tweaks ship as prebuilt .debs, so their version lives in the Makefile.
+    payload: payload.includes(id),
+    version: readVar(`${id.toUpperCase()}_VERSION`) || null,
     default: defaults.has(id),
   }));
-  return { tweaks, defaults: [...defaults] };
+  return { tweaks, registry, defaults: [...defaults] };
 }
 
 async function readControl(id) {
@@ -179,10 +190,20 @@ async function buildConfig() {
   const inputs = parseWorkflowInputs(workflowYaml);
   const { tweaks } = parseMakefileTweaks(makefile);
   const enriched = await Promise.all(
-    tweaks.map(async (t) => ({ ...t, ...(await readControl(t.id)) })),
+    tweaks.map(async (t) => {
+      const control = await readControl(t.id);
+      return {
+        ...t,
+        name: control.name,
+        description: control.description,
+        // Submodules keep their version in control, payload tweaks in the Makefile.
+        version: control.version || t.version,
+      };
+    }),
   );
   return {
     workflow: WORKFLOW_NAME,
+    updateWorkflow: UPDATE_WORKFLOW_NAME,
     repo,
     inputs,
     tweakInput: TWEAK_INPUT,
@@ -210,10 +231,10 @@ function normaliseTweaks(value, valid) {
   return out;
 }
 
-function resolveInputs(config, submitted) {
+function resolveInputs(config, submitted, specs = config.inputs) {
   const values = {};
   const validTweaks = new Set(config.tweaks.map((t) => t.id));
-  for (const [key, spec] of Object.entries(config.inputs)) {
+  for (const [key, spec] of Object.entries(specs)) {
     if (key === config.tweakInput) {
       values[key] = normaliseTweaks(submitted?.[key], validTweaks).join(' ');
       continue;
@@ -235,8 +256,8 @@ function resolveInputs(config, submitted) {
 // Actions
 // ---------------------------------------------------------------------------
 
-async function dispatchWorkflow({ token, owner, repo, ref, inputs }) {
-  const url = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/actions/workflows/${WORKFLOW_NAME}/dispatches`;
+async function dispatchWorkflow({ token, owner, repo, ref, inputs, workflow = WORKFLOW_NAME }) {
+  const url = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/actions/workflows/${workflow}/dispatches`;
   const res = await fetch(url, {
     method: 'POST',
     headers: {
@@ -251,6 +272,65 @@ async function dispatchWorkflow({ token, owner, repo, ref, inputs }) {
   });
   const body = await res.text();
   return { status: res.status, ok: res.ok, body };
+}
+
+// ---------------------------------------------------------------------------
+// Tweak updates
+// ---------------------------------------------------------------------------
+
+let updatesCache = { at: 0, data: null };
+
+async function checkTweakUpdates({ token = '', refresh = false } = {}) {
+  if (!refresh && updatesCache.data && Date.now() - updatesCache.at < UPDATE_CACHE_MS) {
+    return { ...updatesCache.data, cached: true };
+  }
+  const { stdout } = await execFileAsync('python3', [CHECKER_REL, '--json'], {
+    cwd: REPO_ROOT,
+    maxBuffer: 32 << 20,
+    timeout: 180000,
+    // The token only raises the GitHub API rate limit; the check works without one.
+    env: { ...process.env, GITHUB_TOKEN: token || process.env.GITHUB_TOKEN || '' },
+  });
+  const data = JSON.parse(stdout);
+  updatesCache = { at: Date.now(), data };
+  return data;
+}
+
+async function git(args) {
+  const { stdout, stderr } = await execFileAsync('git', args, {
+    cwd: REPO_ROOT, maxBuffer: 32 << 20, timeout: 600000,
+  });
+  return `${stdout}${stderr}`.trim();
+}
+
+async function localDrift() {
+  const drift = [];
+  const status = await git(['status', '--porcelain', '--untracked-files=no']);
+  if (status) drift.push('the working tree has local modifications');
+  const dirty = (await git(['submodule', 'foreach', '--quiet',
+    'test -z "$(git status --porcelain --untracked-files=no)" || echo "$sm_path"']))
+    .split(/\s+/).filter(Boolean);
+  if (dirty.length) drift.push(`submodules with local modifications: ${dirty.join(', ')}`);
+  return drift;
+}
+
+// Pulls the repository and the tweak sources it pins, so the UI shows what the
+// update workflow just pushed.
+async function syncRepo() {
+  const drift = await localDrift();
+  if (drift.length) {
+    throw new Error(`refusing to sync - ${drift.join('; ')}. Commit or stash them first.`);
+  }
+  const log = [await git(['fetch', '--prune', 'origin'])];
+  try {
+    log.push(await git(['pull', '--ff-only']));
+  } catch (err) {
+    log.push(`git pull skipped: ${(err.stderr || err.message || '').trim()}`);
+  }
+  log.push(await git(['submodule', 'sync', '--recursive']));
+  log.push(await git(['submodule', 'update', '--init', '--recursive']));
+  updatesCache = { at: 0, data: null };
+  return log.filter(Boolean).join('\n');
 }
 
 function shq(value) {
@@ -353,28 +433,47 @@ async function handleApi(req, res, pathname) {
     sendJson(res, 200, await buildConfig());
     return true;
   }
+  if (req.method === 'POST' && pathname === '/api/updates') {
+    const body = await readBody(req);
+    sendJson(res, 200, await checkTweakUpdates({
+      token: (body.token || '').trim(),
+      refresh: Boolean(body.refresh),
+    }));
+    return true;
+  }
+  if (req.method === 'POST' && pathname === '/api/sync') {
+    sendJson(res, 200, { ok: true, output: await syncRepo() });
+    return true;
+  }
   if (req.method === 'POST' && (pathname === '/api/dispatch' || pathname === '/api/local-script')) {
     const body = await readBody(req);
     const config = await buildConfig();
-    const values = resolveInputs(config, body.inputs);
     if (pathname === '/api/local-script') {
-      sendJson(res, 200, { script: buildLocalScript(config, values) });
+      sendJson(res, 200, { script: buildLocalScript(config, resolveInputs(config, body.inputs)) });
       return true;
     }
+    const workflow = (body.workflow || WORKFLOW_NAME).trim();
+    const rel = WORKFLOWS[workflow];
+    if (!rel) throw new Error(`Unknown workflow: ${workflow}`);
+    const specs = rel === WORKFLOW_REL
+      ? config.inputs
+      : parseWorkflowInputs(await readFile(path.join(REPO_ROOT, rel), 'utf8'));
+    const values = resolveInputs(config, body.inputs, specs);
     const token = (body.token || process.env.GITHUB_TOKEN || '').trim();
     const owner = (body.owner || config.repo.owner || '').trim();
     const repo = (body.repo || config.repo.repo || '').trim();
     const ref = (body.ref || config.repo.branch || 'main').trim();
     if (!token) throw new Error('A GitHub token is required to dispatch the workflow');
     if (!owner || !repo) throw new Error('GitHub owner/repository could not be determined');
-    const result = await dispatchWorkflow({ token, owner, repo, ref, inputs: values });
+    const result = await dispatchWorkflow({ token, owner, repo, ref, inputs: values, workflow });
     sendJson(res, result.ok ? 200 : 502, {
       ok: result.ok,
       status: result.status,
+      workflow,
       message: result.ok
-        ? `Workflow dispatched on ${owner}/${repo}@${ref}.`
+        ? `Workflow ${workflow} dispatched on ${owner}/${repo}@${ref}.`
         : `GitHub responded ${result.status}: ${result.body.slice(0, 500)}`,
-      runsUrl: `https://github.com/${owner}/${repo}/actions/workflows/${WORKFLOW_NAME}`,
+      runsUrl: `https://github.com/${owner}/${repo}/actions/workflows/${workflow}`,
     });
     return true;
   }

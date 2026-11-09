@@ -3,8 +3,13 @@ const form = document.getElementById('build-form');
 const dispatchBtn = document.getElementById('dispatch');
 const scriptBtn = document.getElementById('script');
 const scriptActions = document.getElementById('script-actions');
+const checkBtn = document.getElementById('check-updates');
+const updateBtn = document.getElementById('update-tweaks');
+const syncBtn = document.getElementById('sync');
+const updateSummary = document.getElementById('update-summary');
 
 let config = null;
+let updates = null;
 let currentScript = '';
 
 function h(tag, props = {}, children = []) {
@@ -64,24 +69,60 @@ function renderInputs() {
   }
 }
 
-function renderTweaks() {
+function updateFor(id) {
+  return (updates && updates.tweaks ? updates.tweaks : []).find((t) => t.id === id) || null;
+}
+
+function renderTweaks({ keepSelection = false } = {}) {
   const defaults = document.getElementById('tweak-default');
   const optional = document.getElementById('tweak-optional');
+  const selected = keepSelection ? new Set(tweakBoxes().filter((b) => b.checked).map((b) => b.dataset.tweak)) : null;
   defaults.replaceChildren();
   optional.replaceChildren();
   for (const tweak of config.tweaks) {
     const box = h('input', { type: 'checkbox' });
-    box.checked = tweak.default;
+    box.checked = selected ? selected.has(tweak.id) : tweak.default;
     box.dataset.tweak = tweak.id;
     box.addEventListener('change', updateCount);
+    const info = updateFor(tweak.id);
     const meta = [tweak.dylib, tweak.version].filter(Boolean).join(' · ');
-    const label = h('label', { class: 'tweak', title: tweak.description || '' }, [
+    const badge = info && info.outdated
+      ? h('a', {
+        class: 'badge outdated',
+        href: info.url || '#',
+        target: '_blank',
+        rel: 'noreferrer',
+        title: `${tweak.id}: ${info.local_version} -> ${info.upstream_version} (${info.url || 'no upstream url'})`,
+        text: `${info.local_version} → ${info.upstream_version}`,
+      })
+      // The badge sits inside the label, which would toggle the checkbox.
+      : null;
+    if (badge) badge.addEventListener('click', (event) => event.stopPropagation());
+    const label = h('label', { class: 'tweak', title: info && info.note ? info.note : tweak.description || '' }, [
       box,
-      h('span', {}, [h('span', { class: 'id', text: tweak.id }), meta ? h('span', { class: 'meta', text: `  ${meta}` }) : null]),
+      h('span', {}, [
+        h('span', { class: 'id', text: tweak.id }),
+        meta ? h('span', { class: 'meta', text: `  ${meta}` }) : null,
+        badge,
+      ]),
     ]);
     (tweak.default ? defaults : optional).append(label);
   }
   updateCount();
+}
+
+function renderUpdateSummary() {
+  if (!updates) {
+    updateSummary.textContent = 'Update check failed.';
+    return;
+  }
+  const when = String(updates.checked_at || '').replace('T', ' ').replace('Z', ' UTC');
+  const parts = [updates.outdated.length
+    ? `${updates.outdated.length} outdated: ${updates.outdated.join(', ')}`
+    : `all ${updates.tweaks.length} tweaks up to date`];
+  if (updates.offline) parts.push('check incomplete - some repositories were unreachable');
+  if (when) parts.push(`checked ${when}${updates.cached ? ' (cached)' : ''}`);
+  updateSummary.textContent = parts.join(' · ');
 }
 
 function renderTarget() {
@@ -100,15 +141,19 @@ function renderTarget() {
   }
 }
 
+function collectTarget() {
+  const target = {};
+  for (const el of document.querySelectorAll('#target [data-target]')) target[el.dataset.target] = el.value;
+  return target;
+}
+
 function collect() {
   const inputs = {};
   for (const el of document.querySelectorAll('#inputs [data-key]')) {
     inputs[el.dataset.key] = el.dataset.kind === 'boolean' ? el.checked : el.value;
   }
   inputs[config.tweakInput] = tweakBoxes().filter((b) => b.checked).map((b) => b.dataset.tweak);
-  const target = {};
-  for (const el of document.querySelectorAll('#target [data-target]')) target[el.dataset.target] = el.value;
-  return { inputs, target };
+  return { inputs, target: collectTarget() };
 }
 
 async function post(path, body) {
@@ -120,6 +165,26 @@ async function post(path, body) {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || data.message || `HTTP ${res.status}`);
   return data;
+}
+
+async function checkUpdates(refresh = false) {
+  updateSummary.textContent = 'Checking upstream versions…';
+  try {
+    updates = await post('/api/updates', { token: document.getElementById('target-token')?.value || '', refresh });
+  } catch (err) {
+    updates = null;
+    updateSummary.textContent = `Update check failed: ${err.message}`;
+    return;
+  }
+  renderTweaks({ keepSelection: true });
+  renderUpdateSummary();
+}
+
+async function reloadConfig() {
+  const fresh = await (await fetch('/api/config')).json();
+  config = fresh;
+  renderPrereqs();
+  renderTweaks({ keepSelection: true });
 }
 
 document.querySelectorAll('[data-preset]').forEach((button) => {
@@ -166,6 +231,71 @@ scriptBtn.addEventListener('click', async () => {
   }
 });
 
+checkBtn.addEventListener('click', async () => {
+  checkBtn.disabled = true;
+  try {
+    await checkUpdates(true);
+  } finally {
+    checkBtn.disabled = false;
+  }
+});
+
+updateBtn.addEventListener('click', async () => {
+  if (!updates || !Array.isArray(updates.outdated)) {
+    setOutput('Run a version check first.', 'error');
+    return;
+  }
+  const ids = updates.outdated;
+  if (!ids.length) {
+    setOutput('Nothing to update - every tweak is up to date.', 'ok');
+    return;
+  }
+  const target = collectTarget();
+  if (!target.token) {
+    setOutput(`A GitHub token is required to dispatch ${config.updateWorkflow}.`, 'error');
+    return;
+  }
+  const branch = target.ref || 'the branch';
+  if (!confirm(`Update ${ids.length} tweak(s) on GitHub?\n\n${ids.join(', ')}\n\n` +
+    `The workflow bumps the sources, compiles the bumped tweaks and pushes to ${branch}.`)) return;
+  updateBtn.disabled = true;
+  setOutput(`Dispatching ${config.updateWorkflow}…`);
+  try {
+    const data = await post('/api/dispatch', {
+      ...target,
+      workflow: config.updateWorkflow,
+      inputs: {
+        only: ids.join(' '),
+        include_payload: true,
+        verify: true,
+        push: true,
+        sdk_version: document.getElementById('input-sdk_version')?.value || '26.5',
+      },
+    });
+    setOutput(`${data.message}\n\nWatch progress: ${data.runsUrl}\n\n` +
+      'When it finished, use "Sync repository" and then dispatch a build.', 'ok');
+  } catch (err) {
+    setOutput(`Error: ${err.message}`, 'error');
+  } finally {
+    updateBtn.disabled = false;
+  }
+});
+
+syncBtn.addEventListener('click', async () => {
+  syncBtn.disabled = true;
+  setOutput('Syncing repository…');
+  try {
+    const data = await post('/api/sync', {});
+    setOutput(`Repository synced.\n\n${data.output}`, 'ok');
+    await reloadConfig();
+    await checkUpdates(true);
+  } catch (err) {
+    setOutput(`Error: ${err.message}`, 'error');
+  } finally {
+    syncBtn.disabled = false;
+  }
+});
+
 document.getElementById('download').addEventListener('click', () => {
   const blob = new Blob([currentScript], { type: 'text/x-shellscript' });
   const url = URL.createObjectURL(blob);
@@ -187,6 +317,8 @@ try {
   renderTweaks();
   renderTarget();
   setOutput('Ready. Pick your tweaks, then dispatch a GitHub Actions build or generate a local build script.');
+  // The version check talks to GitHub, so it runs after the UI is usable.
+  checkUpdates(false);
 } catch (err) {
   setOutput(`Failed to load configuration: ${err.message}`, 'error');
 }
