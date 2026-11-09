@@ -252,11 +252,8 @@ updateBtn.addEventListener('click', async () => {
     setOutput('Nothing to update - every tweak is up to date.', 'ok');
     return;
   }
+  // The server falls back to $GITHUB_TOKEN, so an empty field is fine here.
   const target = collectTarget();
-  if (!target.token) {
-    setOutput(`A GitHub token is required to dispatch ${config.updateWorkflow}.`, 'error');
-    return;
-  }
   const branch = target.ref || 'the branch';
   if (!confirm(`Update ${ids.length} tweak(s) on GitHub?\n\n${ids.join(', ')}\n\n` +
     `The workflow bumps the sources, compiles the bumped tweaks and pushes to ${branch}.`)) return;
