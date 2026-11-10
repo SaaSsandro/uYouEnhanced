@@ -15,9 +15,17 @@ Each command costs 24 bytes plus the injected "@rpath/<dylib>" string, padded to
 a multiple of 8, so the cost depends on the dylib's file name and not only on
 the number of tweaks (48, 56 and 64 bytes occur in practice).
 
+The dylibs that get injected are named on the command line, straight from the
+Makefile, which is the only place that knows the selection:
+
+    make -s print-inject-dylibs     # honours ENABLED_TWEAKS, incl. Tweaks/custom.mk
+
+so this script keeps no tweak registry of its own and a tweak added through the
+app is covered without any extra wiring.
+
 Usage:
-    Tools/check-inject-budget.py --makefile Makefile \
-        --binary Payload/YouTube.app/YouTube --tweaks "YouPiP iSponsorBlock"
+    Tools/check-inject-budget.py --binary Payload/YouTube.app/YouTube \
+        --dylibs "YouPiP.dylib YTUnShorts.dylib"
 """
 
 import argparse
@@ -85,41 +93,6 @@ def read_macho(path):
         return _parse(stream, path)
 
 
-def read_makefile(path):
-    """Return ({tweak id: dylib name}, default tweaks)."""
-    lines, buffer = [], ""
-    with open(path, encoding="utf-8", errors="replace") as handle:
-        for line in handle:
-            buffer += line.rstrip("\n")
-            if buffer.endswith("\\"):
-                buffer = buffer[:-1] + " "
-                continue
-            lines.append(buffer)
-            buffer = ""
-    if buffer:
-        lines.append(buffer)
-
-    variables = {}
-    for line in lines:
-        match = re.match(r"([A-Za-z0-9_.-]+)\s*[?:]?=\s*(.*)$", line)
-        if match:
-            variables.setdefault(match.group(1), match.group(2).strip())
-
-    for key in ("TWEAK_REGISTRY",):
-        if key not in variables:
-            die(f"{path}: {key} not found")
-
-    identifiers = variables["TWEAK_REGISTRY"].split() + variables.get("PAYLOAD_TWEAKS", "").split()
-    dylibs = {}
-    for identifier in identifiers:
-        name = variables.get(f"{identifier}_DYLIB")
-        if not name:
-            die(f"{path}: no {identifier}_DYLIB for {identifier}")
-        dylibs[identifier] = name
-
-    return (dylibs, variables.get("DEFAULT_TWEAKS", "").split())
-
-
 def command_size(dylib_name):
     """Bytes an LC_LOAD_WEAK_DYLIB for this dylib consumes."""
     raw = DYLIB_COMMAND_OVERHEAD + len(f"@rpath/{dylib_name}") + 1
@@ -128,23 +101,20 @@ def command_size(dylib_name):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--tweaks", default="", help="enabled tweak ids (default: DEFAULT_TWEAKS)")
-    parser.add_argument("--makefile", default="Makefile")
+    parser.add_argument("--dylibs", default="", help="the injected dylib file names")
     parser.add_argument("--binary", default="Payload/YouTube.app/YouTube")
     args = parser.parse_args()
 
-    registry, defaults = read_makefile(args.makefile)
-    enabled = [t for t in re.split(r"[\s,]+", args.tweaks) if t] or defaults
-
-    unknown = [t for t in enabled if t not in registry]
-    if unknown:
-        die(f"unknown tweak(s): {' '.join(unknown)} (valid: {' '.join(registry)})")
+    dylibs = [name for name in re.split(r"[\s,]+", args.dylibs) if name]
+    if not dylibs:
+        # An empty selection injects nothing, so there is nothing to check. A
+        # typo cannot get this far: the Makefile rejects unknown tweak ids.
+        print("no dylibs injected - nothing to check")
+        return
 
     ncmds, sizeofcmds, section_offset = read_macho(args.binary)
     budget = section_offset - MACH_HEADER_64
     free = budget - sizeofcmds
-
-    entries = [(registry[t] + ".dylib", t) for t in enabled]
 
     print(f"binary     : {args.binary}")
     print(f"ncmds      : {ncmds}")
@@ -153,12 +123,12 @@ def main():
     print(f"free       : {free} B")
     print()
     total = 0
-    for dylib, label in entries:
+    for dylib in dylibs:
         size = command_size(dylib)
         total += size
-        print(f"  {size:3} B  {dylib:<32} {label}")
-    print(f"  {'-' * 62}")
-    print(f"  {total} B of {free} B used by {len(entries)} dylibs")
+        print(f"  {size:3} B  {dylib}")
+    print(f"  {'-' * 48}")
+    print(f"  {total} B of {free} B used by {len(dylibs)} dylibs")
 
     if total > free:
         print()

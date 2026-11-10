@@ -13,8 +13,10 @@ injects them into a YouTube IPA with [Theos](https://theos.dev) and
 1. The workflow downloads the decrypted YouTube IPA given as `decrypted_youtube_url`
    and reads its version from `Payload/YouTube.app/Info.plist`.
 2. `Tools/check-inject-budget.py` verifies that the selected tweaks fit into the
-   binary's load-command area. Without that check `insert_dylib` stalls for hours
-   instead of failing.
+   binary's load-command area. It measures the dylibs `make print-inject-dylibs`
+   prints, so the check keeps no tweak registry of its own and covers tweaks added
+   through the app. Without that check `insert_dylib` stalls for hours instead of
+   failing.
 3. Theos builds the submodule tweaks and theos-jailed injects every selected dylib
    — plus its settings bundle, embedded libraries and frameworks — into the app.
 4. `cyan` injects the Open in YouTube Safari extension, the IPA is stripped of
@@ -139,6 +141,21 @@ the workflow instead of in a build.
 tweaks are version-checked and updated like the curated ones, and the app's tweak
 picker shows them in a **Custom** section that only appears once the first one
 exists.
+
+### Removing a custom tweak
+
+`remove-tweak.yml` — dispatchable from the app by swiping a row in **Custom** —
+does the reverse: it deletes the `Tweaks/custom.mk` block, the `.gitmodules`
+section and the `Tweaks/<id>` gitlink, asserts that all three are gone, and then
+pushes. Only ids listed in `CUSTOM_TWEAKS` can be removed; the curated tweaks are
+wired up by hand and should not disappear because of a button. Nothing has to
+compile, since deleting an entry cannot break the build — the next build is the
+gate.
+
+| Input | Default | Meaning |
+|---|---|---|
+| `id` | – | Tweak id to remove, as listed in `CUSTOM_TWEAKS`. |
+| `push` | `true` | Commit and push the removal. |
 
 ## The iOS app
 

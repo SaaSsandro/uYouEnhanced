@@ -1,0 +1,159 @@
+# Removes a tweak that was added through the app.
+#
+# Only tweaks listed in Tweaks/custom.mk can be removed - the curated ones are
+# wired up by hand in the Makefile and must not vanish because of an app button.
+# Nothing has to compile (dropping an entry cannot break the build), so the run
+# deletes the block, the gitlink and the .gitmodules section, asserts that all
+# three are gone, and pushes. The next build proves the result.
+
+name: Remove tweak
+
+on:
+  workflow_dispatch:
+    inputs:
+      id:
+        description: "Tweak id to remove (as listed under Custom)"
+        required: true
+        type: string
+      push:
+        description: "Commit and push the removal (off = only show the diff)"
+        default: true
+        required: false
+        type: boolean
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  remove:
+    name: Remove tweak
+    # macos-latest has no runner in this repository; the other workflows use this one.
+    runs-on: xcode-27
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          path: repo
+          ref: ${{ github.ref }}
+          fetch-depth: 0
+          # Only the gitlink and the .gitmodules entry matter, not the submodule.
+          submodules: false
+
+      - name: Remove the tweak
+        id: remove
+        env:
+          INPUT_ID: ${{ inputs.id }}
+        run: |
+          python3 - <<'PY'
+          import os, pathlib, re, shutil, subprocess
+
+          repo = pathlib.Path("repo")
+          tweak_id = os.environ["INPUT_ID"].strip()
+          if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", tweak_id):
+              raise SystemExit(f"error: '{tweak_id}' is not a tweak id")
+
+          def git(*args, check=True):
+              proc = subprocess.run(["git", *args], cwd=repo, capture_output=True, text=True)
+              if check and proc.returncode != 0:
+                  raise SystemExit(f"error: git {' '.join(args)} failed:\n{proc.stdout.strip()}\n{proc.stderr.strip()}")
+              return proc.stdout
+
+          custom = repo / "Tweaks" / "custom.mk"
+          if not custom.is_file():
+              raise SystemExit("error: Tweaks/custom.mk does not exist")
+
+          with custom.open("r", newline="") as handle:
+              text = handle.read()
+          newline = "\r\n" if "\r\n" in text else "\n"
+
+          # Guard: only entries the add workflow appended may be removed here.
+          known = re.findall(r"(?m)^CUSTOM_TWEAKS\s*\+=\s*(\S+)\s*$", text)
+          if tweak_id not in known:
+              raise SystemExit(
+                  f"error: '{tweak_id}' is not a custom tweak (removable: {' '.join(known) or 'none'})"
+              )
+
+          # Drop the block: the two registry lines, the subproject/dylib pair and
+          # the "# added by add-tweak.yml" comment above them.
+          kept = []
+          for line in text.split(newline):
+              stripped = line.strip()
+              own = (
+                  stripped in (f"TWEAK_REGISTRY += {tweak_id}", f"CUSTOM_TWEAKS += {tweak_id}")
+                  or re.fullmatch(rf"{re.escape(tweak_id)}_(SUBPROJECT|DYLIB)\s*[:?+]?=.*", stripped)
+              )
+              if own:
+                  if kept and kept[-1].lstrip().startswith("#") and tweak_id in kept[-1]:
+                      kept.pop()
+                  continue
+              kept.append(line)
+
+          while kept and not kept[-1].strip():
+              kept.pop()
+          body = []
+          for line in kept:
+              if not line.strip() and body and not body[-1].strip():
+                  continue
+              body.append(line)
+          with custom.open("w", newline="") as handle:
+              handle.write(newline.join(body) + newline)
+
+          # Submodule: gitlink, .gitmodules section and any leftover directory.
+          sub = f"Tweaks/{tweak_id}"
+          git("submodule", "deinit", "-f", "--", sub, check=False)
+          git("rm", "-f", "--", sub, check=False)
+          git("config", "-f", ".gitmodules", "--remove-section", f"submodule.{sub}", check=False)
+          if (repo / sub).exists():
+              shutil.rmtree(repo / sub, ignore_errors=True)
+          git("add", "--", "Tweaks/custom.mk", ".gitmodules")
+
+          print(f"removed {tweak_id} from Tweaks/custom.mk and {sub}")
+          print(git("--no-pager", "diff", "--cached", "--stat"))
+          (pathlib.Path(os.environ["RUNNER_TEMP"]) / "commit-message.txt").write_text(
+              f"feat(tweaks): remove {tweak_id}\n\n"
+              f"Dropped the custom.mk entry, the .gitmodules section and the\n"
+              f"Tweaks/{tweak_id} gitlink.\n"
+          )
+          with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+              out.write(f"id={tweak_id}\n")
+          PY
+
+      # Cheap and local: the three places the tweak could still hide. Compiling
+      # would only tell us what the next build says anyway.
+      - name: Verify the tweak is gone
+        run: |
+          cd repo
+          id="${{ steps.remove.outputs.id }}"
+          fail=0
+          if grep -qxF "TWEAK_REGISTRY += ${id}" Tweaks/custom.mk; then
+            echo "error: ${id} is still in Tweaks/custom.mk" >&2; fail=1
+          fi
+          if git config -f .gitmodules --get "submodule.Tweaks/${id}.path" >/dev/null; then
+            echo "error: .gitmodules still lists Tweaks/${id}" >&2; fail=1
+          fi
+          if [ -e "Tweaks/${id}" ]; then
+            echo "error: Tweaks/${id} still exists" >&2; fail=1
+          fi
+          [ "$fail" -eq 0 ] || exit 1
+          echo "${id} is gone from Tweaks/custom.mk, .gitmodules and the working tree." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Commit and push
+        if: ${{ inputs.push }}
+        working-directory: repo
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --cached --quiet; then
+            echo "error: nothing was staged" >&2
+            exit 1
+          fi
+          git commit -F "$RUNNER_TEMP/commit-message.txt"
+          # The branch can move while the run is in flight.
+          git fetch origin "${{ github.ref_name }}"
+          git rebase "origin/${{ github.ref_name }}"
+          git push origin "HEAD:${{ github.ref_name }}"
+          echo "pushed $(git rev-parse --short HEAD) to ${{ github.ref_name }}" >> "$GITHUB_STEP_SUMMARY"

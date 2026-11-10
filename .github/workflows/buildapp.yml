@@ -205,14 +205,23 @@ jobs:
 
       # Fails in seconds when the tweak selection cannot fit into the YouTube
       # binary's load-command area. Without it insert_dylib stalls for hours
-      # instead of failing. See Tools/check-inject-budget.py.
+      # instead of failing. The dylib list comes from the Makefile
+      # (`make print-inject-dylibs`), so there is no second registry to keep in
+      # sync: a tweak added through Tweaks/custom.mk is covered automatically.
       - name: Check injection budget
+        env:
+          THEOS: ${{ github.workspace }}/theos
         run: |
           cd main
+          DLIBS="$(make -s --no-print-directory \
+            SDK_VERSION="${{ inputs.sdk_version }}" \
+            ENABLED_TWEAKS="$(printf '%s' '${{ inputs.enabled_tweaks }}' | tr -s ', ' ' ')" \
+            print-inject-dylibs)"
+          echo "injected dylibs:"
+          printf '  %s\n' $DLIBS
           python3 Tools/check-inject-budget.py \
             --binary Payload/YouTube.app/YouTube \
-            --makefile Makefile \
-            --tweaks "${{ inputs.enabled_tweaks }}"
+            --dylibs "$DLIBS"
 
       - name: Build Package
         id: build_package

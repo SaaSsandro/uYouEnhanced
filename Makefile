@@ -221,6 +221,15 @@ include $(THEOS_MAKE_PATH)/tweak.mk
 internal-clean::
 	@rm -rf $(YTPLUS_PATH) $(GONERINO_PATH)
 
+# Prints the dylibs theos-jailed injects, one per line - the authoritative list
+# of what has to fit into the binary's load-command area. Tools/check-inject-budget.py
+# reads it instead of rebuilding the selection from the registry, so the check
+# needs no tweak names of its own: a tweak added through Tweaks/custom.mk is
+# covered as soon as the Makefile knows it.
+.PHONY: print-inject-dylibs
+print-inject-dylibs:
+	@printf '%s\n' $(sort $(notdir $($(TWEAK_NAME)_INJECT_DYLIBS)))
+
 ifneq ($(JAILBROKEN),1)
 ifneq ($(filter YTPlus,$(ENABLED_TWEAKS)),)
 before-all::
