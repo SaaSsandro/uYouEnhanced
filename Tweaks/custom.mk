@@ -9,9 +9,3 @@
 #
 # The Makefile includes it before TWEAK_REGISTRY is validated, so a tweak listed
 # here behaves exactly like one wired up by hand.
-
-# added by add-tweak.yml: PoomSmart/YTUnShorts
-TWEAK_REGISTRY += YTUnShorts
-CUSTOM_TWEAKS += YTUnShorts
-YTUnShorts_SUBPROJECT = Tweaks/YTUnShorts
-YTUnShorts_DYLIB = YTUnShorts
