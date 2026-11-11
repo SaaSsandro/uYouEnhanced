@@ -33,8 +33,15 @@ from there, so adding a tweak means editing the Makefile only.
 |---|---|
 | `TWEAK_REGISTRY` | Tweaks compiled from a submodule (`<id>_SUBPROJECT`, `<id>_DYLIB`). |
 | `PAYLOAD_TWEAKS` | Tweaks shipped as prebuilt `.deb` packages that the build downloads and unpacks. |
+| `SWITCH_TWEAKS` | Selectable ids that compile and inject nothing: switches the build acts on. |
 | `DEFAULT_TWEAKS` | Pre-selected set; also the default of the workflow's `enabled_tweaks` input. |
 | `ENABLED_TWEAKS` | Space- or comma-separated ids to inject. Overrides `DEFAULT_TWEAKS`. |
+
+`OpenInYouTube` is the only switch tweak. It is a normal picker row (Compatibility,
+on by default) that decides whether the Open in YouTube Safari extension is
+injected: the Makefile embeds `Extensions/*.appex` only while it is selected
+(`EMBED_EXTENSIONS_SWITCH`) and `buildapp.yml` reads the resolved selection from
+`make print-enabled-tweaks` before it clones and injects the extension.
 
 Payload tweaks are listed first, because they carry most of the functionality:
 
