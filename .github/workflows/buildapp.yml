@@ -222,7 +222,9 @@ jobs:
           SELECTED="$(make -s --no-print-directory \
             SDK_VERSION="${{ inputs.sdk_version }}" \
             ENABLED_TWEAKS="$(printf '%s' '${{ inputs.enabled_tweaks }}' | tr -s ', ' ' ')" \
-            print-enabled-tweaks)"
+            print-enabled-tweaks | tr '\n' ' ')"
+          # $GITHUB_ENV takes exactly one KEY=value per line; the target prints one
+          # tweak per line, so flatten it first.
           printf 'SELECTED_TWEAKS=%s\n' "$SELECTED" >> "$GITHUB_ENV"
           echo "injected dylibs:"
           printf '  %s\n' $DLIBS
