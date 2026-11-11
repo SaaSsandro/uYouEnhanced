@@ -217,6 +217,13 @@ jobs:
             SDK_VERSION="${{ inputs.sdk_version }}" \
             ENABLED_TWEAKS="$(printf '%s' '${{ inputs.enabled_tweaks }}' | tr -s ', ' ' ')" \
             print-inject-dylibs)"
+          # The selection as the Makefile resolved it (input + DEFAULT_TWEAKS), so
+          # the steps below can act on switch tweaks without repeating that logic.
+          SELECTED="$(make -s --no-print-directory \
+            SDK_VERSION="${{ inputs.sdk_version }}" \
+            ENABLED_TWEAKS="$(printf '%s' '${{ inputs.enabled_tweaks }}' | tr -s ', ' ' ')" \
+            print-enabled-tweaks)"
+          printf 'SELECTED_TWEAKS=%s\n' "$SELECTED" >> "$GITHUB_ENV"
           echo "injected dylibs:"
           printf '  %s\n' $DLIBS
           python3 Tools/check-inject-budget.py \
@@ -241,6 +248,13 @@ jobs:
 
       - name: Clone Open in YouTube (Safari Extension)
         run: |
+          # The extension is a switch tweak (OpenInYouTube, on by default): it is
+          # only cloned and injected while that id is part of the resolved
+          # selection, so deselecting it really leaves the extension out.
+          if ! printf ' %s ' "${SELECTED_TWEAKS:-}" | grep -q ' OpenInYouTube '; then
+            echo "Safari extension stays out: OpenInYouTube is not selected." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           git clone --quiet -n --depth=1 --filter=tree:0 https://github.com/BillyCurtis/OpenYouTubeSafariExtension.git OpenYouTubeSafariExtension
           cd OpenYouTubeSafariExtension
           git sparse-checkout set --no-cone OpenYouTubeSafariExtension.appex
@@ -251,12 +265,18 @@ jobs:
         run: |
           IPA_IN="main/packages/${{ steps.build_package.outputs.package }}"
           OUTNAME="${{ inputs.ipa_prefix || 'YTPlus' }}_${{ env.YT_VERSION }}_v${{ inputs.ytplus_version }}.ipa"
+          # The extension is only there when OpenInYouTube was selected; without
+          # it cyan gets no -uwef and injects nothing extra.
+          APPEX_ARGS=()
+          if [ -d OpenYouTubeSafariExtension.appex ]; then
+            APPEX_ARGS=(-uwef OpenYouTubeSafariExtension.appex)
+          fi
           # Only the freshly cloned Safari extension is injected here: the
           # theos-jailed build already put every compiled tweak into the app, so
           # handing it the .deb as well would just copy those files a second
           # time. (The .deb also carries the staged app, so cyan's extractor
           # would drag nested bundles and frameworks out of it.)
-          cyan -i "$IPA_IN" -o "$OUTNAME" -uwef OpenYouTubeSafariExtension.appex \
+          cyan -i "$IPA_IN" -o "$OUTNAME" ${APPEX_ARGS[@]+"${APPEX_ARGS[@]}"} \
             -n "${{ inputs.app_name }}" -b ${{ inputs.bundle_id }}
 
       - name: Strip Unresignable Extensions From Final IPA

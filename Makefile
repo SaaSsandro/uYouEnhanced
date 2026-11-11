@@ -42,7 +42,7 @@ PACKAGE_VERSION = $(YOUTUBE_VERSION)-$(YTPLUS_VERSION)
 #   make package ENABLED_TWEAKS="YouPiP YTUHD"
 DEFAULT_TWEAKS = YTPlus YTweaks YTABConfig YTClassicVideoQuality \
 	Return-YouTube-Dislikes YTVideoOverlay YouQuality YouSlider YouTubeLegacy \
-	YouGroupSettings FLEXing
+	YouGroupSettings FLEXing OpenInYouTube
 
 ENABLED_TWEAKS ?= $(DEFAULT_TWEAKS)
 
@@ -114,6 +114,14 @@ SUPPORT_SUBMODULES = Tweaks/YouTubeHeader Tweaks/PSHeader Tweaks/libundirect Twe
 # through ENABLED_TWEAKS like any other tweak.
 PAYLOAD_TWEAKS = YTPlus Gonerino
 
+# SWITCH_TWEAKS are selectable like any other tweak but compile and inject
+# nothing themselves: they are switches the build acts on. OpenInYouTube gates the
+# Open in YouTube Safari extension - both the .appex bundles embedded here and the
+# one buildapp.yml injects - so it can be deselected in the picker like any other
+# tweak. They carry no <id>_SUBPROJECT/<id>_DYLIB, so they have to stay out of the
+# subproject and dylib lists below.
+SWITCH_TWEAKS = OpenInYouTube
+
 # CUSTOM_TWEAKS are the tweaks added by hand through the app. add-tweak.yml only
 # ever appends to Tweaks/custom.mk (one block per tweak: the registry entry, the
 # subproject and the dylib) and that file is included here, before the checks
@@ -121,13 +129,14 @@ PAYLOAD_TWEAKS = YTPlus Gonerino
 CUSTOM_TWEAKS =
 include Tweaks/custom.mk
 
-UNKNOWN_TWEAKS = $(filter-out $(TWEAK_REGISTRY) $(PAYLOAD_TWEAKS),$(ENABLED_TWEAKS))
+COMPILED_TWEAKS = $(filter-out $(PAYLOAD_TWEAKS) $(SWITCH_TWEAKS),$(ENABLED_TWEAKS))
+UNKNOWN_TWEAKS = $(filter-out $(TWEAK_REGISTRY) $(PAYLOAD_TWEAKS) $(SWITCH_TWEAKS),$(ENABLED_TWEAKS))
 ifneq ($(UNKNOWN_TWEAKS),)
-$(error Unknown tweak(s) in ENABLED_TWEAKS: $(UNKNOWN_TWEAKS). Valid ids: $(TWEAK_REGISTRY) $(PAYLOAD_TWEAKS))
+$(error Unknown tweak(s) in ENABLED_TWEAKS: $(UNKNOWN_TWEAKS). Valid ids: $(TWEAK_REGISTRY) $(PAYLOAD_TWEAKS) $(SWITCH_TWEAKS))
 endif
 
-ENABLED_TWEAK_SUBPROJECTS = $(foreach t,$(filter-out $(PAYLOAD_TWEAKS),$(ENABLED_TWEAKS)),$($(t)_SUBPROJECT))
-ENABLED_TWEAK_DYLIBS = $(foreach t,$(filter-out $(PAYLOAD_TWEAKS),$(ENABLED_TWEAKS)),$(THEOS_OBJ_DIR)/$($(t)_DYLIB).dylib)
+ENABLED_TWEAK_SUBPROJECTS = $(foreach t,$(COMPILED_TWEAKS),$($(t)_SUBPROJECT))
+ENABLED_TWEAK_DYLIBS = $(foreach t,$(COMPILED_TWEAKS),$(THEOS_OBJ_DIR)/$($(t)_DYLIB).dylib)
 
 export libcolorpicker_ARCHS = arm64
 export libFLEX_ARCHS = arm64
@@ -152,7 +161,15 @@ $(TWEAK_NAME)_INJECT_DYLIBS = $(ENABLED_TWEAK_DYLIBS)
 $(TWEAK_NAME)_EMBED_LIBRARIES = $(THEOS_OBJ_DIR)/libcolorpicker.dylib
 $(TWEAK_NAME)_EMBED_FRAMEWORKS = $(_THEOS_LOCAL_DATA_DIR)/$(THEOS_OBJ_DIR_NAME)/install_Alderis.xcarchive/Products/var/jb/Library/Frameworks/Alderis.framework
 $(TWEAK_NAME)_EMBED_BUNDLES = $(wildcard Bundles/*.bundle)
-$(TWEAK_NAME)_EMBED_EXTENSIONS = $(wildcard Extensions/*.appex)
+# The Open in YouTube Safari extension - and the share extension that ships next
+# to it - is embedded only while its switch tweak is selected.
+EMBED_EXTENSIONS_SWITCH = OpenInYouTube
+ifeq ($(EMBED_EXTENSIONS_SWITCH),)
+EMBED_EXTENSIONS_SELECTED = 1
+else
+EMBED_EXTENSIONS_SELECTED = $(filter $(EMBED_EXTENSIONS_SWITCH),$(ENABLED_TWEAKS))
+endif
+$(TWEAK_NAME)_EMBED_EXTENSIONS = $(if $(EMBED_EXTENSIONS_SELECTED),$(wildcard Extensions/*.appex),)
 
 INSTALL_TARGET_PROCESSES = YouTube
 REMOVE_EXTENSIONS = 1
@@ -220,6 +237,13 @@ include $(THEOS_MAKE_PATH)/tweak.mk
 .PHONY: internal-clean before-all
 internal-clean::
 	@rm -rf $(YTPLUS_PATH) $(GONERINO_PATH)
+
+# Prints the resolved tweak selection, one per line: the input after the defaults
+# were applied. buildapp.yml reads it to know whether a switch tweak is on
+# without repeating the DEFAULT_TWEAKS logic.
+.PHONY: print-enabled-tweaks
+print-enabled-tweaks:
+	@printf '%s\n' $(ENABLED_TWEAKS)
 
 # Prints the dylibs theos-jailed injects, one per line - the authoritative list
 # of what has to fit into the binary's load-command area. Tools/check-inject-budget.py
